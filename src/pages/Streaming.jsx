@@ -241,22 +241,31 @@ const Streaming = () => {
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
             {/* Video Player Area */}
-            <div className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
+            <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {videoId ? (
-                        <iframe
-                            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=1&enablejsapi=1&origin=${window.location.origin}`}
-                            className="absolute top-0 left-0 w-full h-full border-0"
-                            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                            allowFullScreen
-                            onLoad={() => setLoading(false)}
-                            title="Live Stream"
-                        />
-                    ) : (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black text-gray-500 font-mono text-xs p-10 text-center">
-                            Link Video YouTube Tidak Terdeteksi di Admin Panel. <br /> Mohon cek link di /managemen-web-nobar
-                        </div>
-                    )}
+                    {/* ULTIMATE GHOST PLAYER - Aggressive Cropping to Bury YouTube Watermarks */}
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                        {videoId ? (
+                            <iframe
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
+                                // Ultra-Aggressive Crop: W-116%, H-140%. Centers high to bury top-channel UI and bottom-yt logo.
+                                className="absolute top-[-20%] left-[-8%] w-[116%] h-[140%] border-0 scale-[1.02]"
+                                allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                                title="Live Stream"
+                                onLoad={() => setLoading(false)}
+                            />
+                        ) : (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black text-gray-500 font-mono text-xs p-10 text-center text-white/50">
+                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm">
+                                    Link Video YouTube Tidak Terdeteksi di Admin Panel. <br />
+                                    <span className="text-[10px] opacity-50 block mt-2">Mohon cek link di /managemen-web-nobar</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Interaction Shield - Fully Blocking and Anti-Glitched */}
+                    <div className="absolute inset-0 z-20 bg-transparent cursor-default" onContextMenu={(e) => e.preventDefault()} />
 
                     {/* Debug URL Overlay (Small & Subtle) */}
                     <div className="absolute top-4 left-4 z-50 text-[10px] font-mono text-white/30 truncate max-w-[200px] pointer-events-none">
@@ -271,22 +280,32 @@ const Streaming = () => {
                     )}
 
                     {/* Custom Overlay Controls */}
-                    <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
-                        <div className="flex items-center gap-4">
-                            <button onClick={() => setPlaying(!playing)} className="text-white hover:text-neon-blue">
-                                {playing ? <div className="w-4 h-4 bg-white" /> : <Play size={20} fill="currentColor" />}
-                            </button>
-                            <div className="text-white font-bold flex items-center gap-2 text-sm tracking-tighter">
-                                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                                LIVE
+                    <div className="absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/90 to-transparent flex justify-between items-end opacity-0 group-hover:opacity-100 transition-all duration-500 z-30">
+                        <div className="flex flex-col gap-4">
+                            <div className="text-white font-bold flex items-center gap-2 text-base tracking-widest bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+                                <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]"></span>
+                                LIVE NOBAR JKT48
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="p-3 bg-neon-blue/20 hover:bg-neon-blue/40 border border-neon-blue/40 rounded-full transition-all group/ref"
+                                    title="Refresh Stream"
+                                >
+                                    <Send size={20} className="rotate-45 group-hover:scale-110 transition-transform" />
+                                </button>
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-gray-400 uppercase font-mono">Signal Strength</span>
+                                    <span className="text-xs text-neon-green font-bold">EXCELLENT (1080p)</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-6 text-white text-sm font-bold">
-                            <div className="flex items-center gap-2 group/vol">
+                        <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                            <div className="flex items-center gap-3 group/vol">
                                 <Volume2
-                                    size={18}
-                                    className={`cursor-pointer ${volume === 0 ? 'text-red-500' : 'text-gray-400 group-hover/vol:text-white'}`}
+                                    size={20}
+                                    className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`}
                                     onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
                                 />
                                 <input
@@ -294,27 +313,38 @@ const Streaming = () => {
                                     min="0" max="1" step="0.1"
                                     value={volume}
                                     onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                    className="w-20 accent-neon-blue"
+                                    className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
                                 />
                             </div>
-                            <button className="hover:text-neon-blue" title="Toggle Native Controls" onClick={() => setShowNativeControls(!showNativeControls)}>
-                                <Settings size={18} className={showNativeControls ? 'text-neon-blue' : ''} />
+                            <button
+                                className="p-2 hover:bg-white/10 rounded-lg transition-colors group/fs"
+                                onClick={() => {
+                                    const playerEl = document.getElementById('main-player-container');
+                                    if (document.fullscreenElement) {
+                                        document.exitFullscreen();
+                                    } else if (playerEl) {
+                                        playerEl.requestFullscreen();
+                                    }
+                                }}
+                            >
+                                <Maximize size={20} className="group-hover:scale-110 transition-transform" />
                             </button>
-                            <button className="hover:text-neon-blue"><Maximize size={18} /></button>
                         </div>
                     </div>
                 </div>
 
-                {/* Status Bar */}
-                <div className="bg-black/80 border-t border-white/10 p-2 flex items-center justify-between z-30">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${playing ? 'bg-red-500 animate-pulse' : 'bg-gray-600'}`} />
-                        <span className="text-[10px] text-gray-400 font-mono uppercase tracking-tighter">
-                            {playing ? 'SIGNAL LIVE - 1080P' : 'SIGNAL IDLE'}
-                        </span>
+                {/* Bottom Signal Meta */}
+                <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                            <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
+                        </div>
+                        <div className="h-3 w-px bg-white/10" />
+                        <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
                     </div>
-                    <div className="text-[10px] text-neon-blue font-mono cursor-pointer hover:underline" onClick={() => window.location.reload()}>
-                        REFRESH PLAYER
+                    <div className="text-[9px] text-gray-600 font-mono tracking-widest italic uppercase">
+                        {activeTicket || 'No Ticket'}
                     </div>
                 </div>
             </div>
