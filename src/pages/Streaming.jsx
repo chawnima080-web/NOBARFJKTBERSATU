@@ -118,11 +118,21 @@ const Streaming = () => {
         }
     };
 
-    const [url, setUrl] = useState('https://www.youtube.com/watch?v=aqz-KE-bpKQ'); // High compatibility test URL
+    const [url, setUrl] = useState('');
     const [playing, setPlaying] = useState(false);
     const [volume, setVolume] = useState(0.8);
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
+
+    // Extraction logic for YouTube Video ID
+    const getVideoId = (url) => {
+        if (!url) return null;
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    };
+
+    const videoId = getVideoId(url);
     const [messages, setMessages] = useState([
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
@@ -208,41 +218,20 @@ const Streaming = () => {
             {/* Video Player Area */}
             <div className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    <ReactPlayer
-                        url={url}
-                        playing={playing}
-                        volume={volume}
-                        muted={volume === 0} // Sync muted state
-                        width="100%"
-                        height="100%"
-                        controls={false}
-                        config={{
-                            youtube: {
-                                playerVars: {
-                                    showinfo: 0,
-                                    enablejsapi: 1,
-                                    origin: window.location.origin,
-                                    rel: 0
-                                }
-                            }
-                        }}
-                        onReady={() => {
-                            console.log("Player Ready");
-                            setLoading(false);
-                        }}
-                        onBuffer={() => setLoading(true)}
-                        onBufferEnd={() => setLoading(false)}
-                        onStart={() => {
-                            console.log("Playback Started");
-                            setPlaying(true);
-                        }}
-                        onError={(e) => {
-                            console.error("Player Error:", e);
-                            setError(true);
-                            setLoading(false);
-                        }}
-                        style={{ position: 'absolute', top: 0, left: 0 }}
-                    />
+                    {videoId ? (
+                        <iframe
+                            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=1&enablejsapi=1&origin=${window.location.origin}`}
+                            className="absolute top-0 left-0 w-full h-full border-0"
+                            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                            allowFullScreen
+                            onLoad={() => setLoading(false)}
+                            title="Live Stream"
+                        />
+                    ) : (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black text-gray-500 font-mono text-xs p-10 text-center">
+                            Link Video YouTube Tidak Terdeteksi di Admin Panel. <br /> Mohon cek link di /managemen-web-nobar
+                        </div>
+                    )}
 
                     {/* Debug URL Overlay (Small & Subtle) */}
                     <div className="absolute top-4 left-4 z-50 text-[10px] font-mono text-white/30 truncate max-w-[200px] pointer-events-none">
@@ -315,7 +304,9 @@ const Streaming = () => {
                                     className="w-20 accent-neon-blue"
                                 />
                             </div>
-                            <button className="hover:text-neon-blue"><Settings size={18} /></button>
+                            <button className="hover:text-neon-blue" title="Toggle Native Controls" onClick={() => setShowNativeControls(!showNativeControls)}>
+                                <Settings size={18} className={showNativeControls ? 'text-neon-blue' : ''} />
+                            </button>
                             <button className="hover:text-neon-blue"><Maximize size={18} /></button>
                         </div>
                     </div>
