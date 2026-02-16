@@ -3,7 +3,7 @@ import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTria
 // ReactPlayer removed for native Iframe stability
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, set, onDisconnect, serverTimestamp } from 'firebase/database';
 
 const Streaming = () => {
     const [currentTickets, setCurrentTickets] = useState(['TRIAL-JKT48']);
@@ -57,42 +57,49 @@ const Streaming = () => {
         }
     }, [currentTickets]);
 
-    // Heartbeat Logic: Prevent Multi-Device with TTL (Time-To-Live)
+    // Global Heartbeat Logic: Prevent Multi-Device via Firebase
     useEffect(() => {
         if (!isAuthorized || !activeTicket) return;
 
-        const checkSession = () => {
-            try {
+        const sessionRef = ref(db, `sessions/${activeTicket}`);
+
+        // 1. Initial Check & Register
+        const unsubscribe = onValue(sessionRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.id !== sessionId) {
+                // Check for TTL (15s)
                 const now = Date.now();
-                const storedRaw = localStorage.getItem(`session_${activeTicket}`);
-                let sessionInfo = { id: sessionId, lastActive: now };
-
-                if (storedRaw) {
-                    try {
-                        const parsed = JSON.parse(storedRaw);
-                        // If it's a different session AND it was active in the last 10 seconds -> Conflict
-                        if (parsed.id !== sessionId && (now - parsed.lastActive) < 10000) {
-                            setSessionConflict(true);
-                            setIsAuthorized(false);
-                            return;
-                        }
-                    } catch (e) {
-                        // Bad data in localStorage, just overwrite
-                    }
+                const lastSeen = data.timestamp;
+                if (now - lastSeen < 15000) {
+                    setSessionConflict(true);
+                    setIsAuthorized(false);
+                    return;
                 }
-
-                // If no conflict, update our heartbeat
-                localStorage.setItem(`session_${activeTicket}`, JSON.stringify(sessionInfo));
-                setSessionConflict(false);
-            } catch (e) {
-                console.error("Session sync failed:", e);
             }
+
+            // If no conflict or session expired, update our heartbeat
+            set(sessionRef, {
+                id: sessionId,
+                timestamp: serverTimestamp()
+            });
+            setSessionConflict(false);
+        });
+
+        // 2. Setup Periodic Heartbeat
+        const interval = setInterval(() => {
+            set(sessionRef, {
+                id: sessionId,
+                timestamp: serverTimestamp()
+            });
+        }, 8000);
+
+        // 3. Cleanup on disconnect (Firebase feature)
+        onDisconnect(sessionRef).remove();
+
+        return () => {
+            unsubscribe();
+            clearInterval(interval);
         };
-
-        const interval = setInterval(checkSession, 5000);
-        checkSession();
-
-        return () => clearInterval(interval);
     }, [isAuthorized, activeTicket, sessionId]);
 
     const handleAuthorization = (ticket) => {
@@ -162,9 +169,13 @@ const Streaming = () => {
                         Silakan tutup perangkat lain untuk melanjutkan di sini.
                     </p>
                     <button
-                        onClick={() => {
-                            // Force clear local session to allow takeover
-                            localStorage.removeItem(`session_${activeTicket}`);
+                        onClick={async () => {
+                            // Force overwrite Firebase session
+                            const sessionRef = ref(db, `sessions/${activeTicket}`);
+                            await set(sessionRef, {
+                                id: sessionId,
+                                timestamp: serverTimestamp()
+                            });
                             window.location.reload();
                         }}
                         className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]"
