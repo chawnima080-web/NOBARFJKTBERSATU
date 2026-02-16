@@ -16,6 +16,9 @@ const Streaming = () => {
                 if (data.tickets) setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 if (data.settings && data.settings.streamUrl) {
                     setUrl(data.settings.streamUrl);
+                    // If URL changed, reset loading but add a timeout fallback
+                    setLoading(true);
+                    setTimeout(() => setLoading(false), 8000);
                 }
             }
         });
@@ -23,39 +26,66 @@ const Streaming = () => {
     }, []);
 
     const [ticketInput, setTicketInput] = useState('');
-    const [isAuthorized, setIsAuthorized] = useState(false);
+    const [isAuthorized, setIsAuthorized] = useState(() => {
+        // Initial check: is there a persisted ticket?
+        return localStorage.getItem('active_jkt_ticket') ? true : false;
+    });
     const [authError, setAuthError] = useState('');
-    const [activeTicket, setActiveTicket] = useState(null);
-    const [sessionId] = useState(nanoid());
+    const [activeTicket, setActiveTicket] = useState(() => {
+        return localStorage.getItem('active_jkt_ticket') || null;
+    });
+    const [sessionId] = useState(() => {
+        // Persist session ID in the tab's storage so refresh doesn't count as a new device
+        let id = sessionStorage.getItem('jkt_session_id');
+        if (!id) {
+            id = nanoid();
+            sessionStorage.setItem('jkt_session_id', id);
+        }
+        return id;
+    });
     const [sessionConflict, setSessionConflict] = useState(false);
 
-    // Check for ticket in URL on load
+    // Check for ticket in URL or LocalStorage on load
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const ticketFromUrl = urlParams.get('ticket');
-        if (ticketFromUrl && currentTickets.includes(ticketFromUrl)) {
-            handleAuthorization(ticketFromUrl);
+        const storedTicket = localStorage.getItem('active_jkt_ticket');
+        const targetTicket = ticketFromUrl || storedTicket;
+
+        if (targetTicket && currentTickets.includes(targetTicket)) {
+            handleAuthorization(targetTicket);
         }
     }, [currentTickets]);
 
-    // Heartbeat Logic: Prevent Multi-Device
+    // Heartbeat Logic: Prevent Multi-Device with TTL (Time-To-Live)
     useEffect(() => {
         if (!isAuthorized || !activeTicket) return;
 
         const checkSession = () => {
             try {
-                // For demonstration, we use localStorage. 
-                // In production, this would be a Firebase/Supabase call.
-                const storedSession = localStorage.getItem(`session_${activeTicket}`);
+                const now = Date.now();
+                const storedRaw = localStorage.getItem(`session_${activeTicket}`);
+                let sessionInfo = { id: sessionId, lastActive: now };
 
-                if (storedSession && storedSession !== sessionId) {
-                    setSessionConflict(true);
-                    setIsAuthorized(false);
-                } else {
-                    localStorage.setItem(`session_${activeTicket}`, sessionId);
+                if (storedRaw) {
+                    try {
+                        const parsed = JSON.parse(storedRaw);
+                        // If it's a different session AND it was active in the last 10 seconds -> Conflict
+                        if (parsed.id !== sessionId && (now - parsed.lastActive) < 10000) {
+                            setSessionConflict(true);
+                            setIsAuthorized(false);
+                            return;
+                        }
+                    } catch (e) {
+                        // Bad data in localStorage, just overwrite
+                    }
                 }
+
+                // If no conflict, update our heartbeat
+                localStorage.setItem(`session_${activeTicket}`, JSON.stringify(sessionInfo));
+                setSessionConflict(false);
             } catch (e) {
-                console.error("Session sync failed");
+                console.error("Session sync failed:", e);
             }
         };
 
@@ -70,6 +100,10 @@ const Streaming = () => {
         setActiveTicket(ticket);
         setAuthError('');
         setSessionConflict(false);
+
+        // Persist to LocalStorage
+        localStorage.setItem('active_jkt_ticket', ticket);
+
         // Save to URL so refresh doesn't lose access
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?ticket=' + ticket;
         window.history.pushState({ path: newUrl }, '', newUrl);
@@ -116,10 +150,14 @@ const Streaming = () => {
                         Silakan tutup perangkat lain untuk melanjutkan di sini.
                     </p>
                     <button
-                        onClick={() => window.location.reload()}
+                        onClick={() => {
+                            // Force clear local session to allow takeover
+                            localStorage.removeItem(`session_${activeTicket}`);
+                            window.location.reload();
+                        }}
                         className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]"
                     >
-                        COBA LAGI
+                        MASUK PAKSA (AMBIL ALIH)
                     </button>
                     <p className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest">
                         Keamanan Akun Terdeteksi
@@ -195,41 +233,32 @@ const Streaming = () => {
                         style={{ position: 'absolute', top: 0, left: 0 }}
                     />
 
-                    {/* Loading State */}
-                    {loading && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-dark-bg/80 backdrop-blur-sm">
-                            <div className="w-10 h-10 border-2 border-neon-blue border-t-transparent rounded-full animate-spin mb-4" />
-                            <p className="text-white font-mono text-[10px] uppercase tracking-widest">Initializing Player...</p>
-                        </div>
-                    )}
-
-                    {/* Error State */}
-                    {error && (
-                        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black text-center p-6">
-                            <h2 className="text-red-500 text-lg font-display mb-2">SOURCE ERROR</h2>
-                            <p className="text-gray-400 text-xs mb-6">Could not establish connection to stream server.</p>
-                            <button
-                                onClick={() => window.location.reload()}
-                                className="px-4 py-2 border border-neon-blue text-neon-blue text-[10px] font-bold uppercase tracking-widest hover:bg-neon-blue hover:text-white transition-all"
-                            >
-                                Force Reload
-                            </button>
-                        </div>
-                    )}
-
                     {/* Start Overlay if not playing and no error */}
-                    {!playing && !error && !loading && (
+                    {!playing && !error && (
                         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
-                            <div className="text-center">
-                                <h2 className="text-white/50 text-2xl font-display mb-2 select-none uppercase tracking-widest">Live Stream</h2>
-                                <div
-                                    onClick={() => setPlaying(true)}
-                                    className="w-20 h-20 rounded-full border-2 border-white/20 flex items-center justify-center mx-auto hover:border-neon-blue hover:bg-neon-blue/10 transition-all cursor-pointer group/play"
-                                >
-                                    <Play className="text-white group-hover/play:text-neon-blue ml-1" fill="currentColor" size={32} />
+                            {loading ? (
+                                <div className="text-center">
+                                    <div className="w-10 h-10 border-2 border-neon-blue border-t-transparent rounded-full animate-spin mb-4 mx-auto" />
+                                    <p className="text-white font-mono text-[10px] uppercase tracking-widest animate-pulse">Establishing Stream Connection...</p>
+                                    <button
+                                        onClick={() => { setLoading(false); setPlaying(true); }}
+                                        className="mt-4 text-[10px] text-gray-500 underline hover:text-white"
+                                    >
+                                        Gagal memuat? Klik di sini untuk paksa putar
+                                    </button>
                                 </div>
-                                <p className="text-gray-500 mt-4 font-mono text-xs">Click to start playback</p>
-                            </div>
+                            ) : (
+                                <div className="text-center">
+                                    <h2 className="text-white/50 text-2xl font-display mb-2 select-none uppercase tracking-widest">Live Stream Ready</h2>
+                                    <div
+                                        onClick={() => setPlaying(true)}
+                                        className="w-20 h-20 rounded-full border-2 border-white/20 flex items-center justify-center mx-auto hover:border-neon-blue hover:bg-neon-blue/10 transition-all cursor-pointer group/play"
+                                    >
+                                        <Play className="text-white group-hover/play:text-neon-blue ml-1" fill="currentColor" size={32} />
+                                    </div>
+                                    <p className="text-gray-500 mt-4 font-mono text-xs">Klik untuk mulai menonton</p>
+                                </div>
+                            )}
                         </div>
                     )}
 
