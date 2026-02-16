@@ -263,15 +263,18 @@ const Streaming = () => {
                     </div>
 
                     {/* Opaque Masks - Blocks YT Branding 100% (Non-transparent) */}
-                    {/* Top Left: Masks Channel Icon & Title */}
-                    <div className="absolute top-0 left-0 w-[40%] h-[12%] bg-black z-10 pointer-events-auto" />
-                    {/* Top Right: Masks Share/Buttons */}
-                    <div className="absolute top-0 right-0 w-[15%] h-[12%] bg-black z-10 pointer-events-auto" />
-                    {/* Bottom Right: Masks YT Logo & "Watch on YT" */}
-                    <div className="absolute bottom-0 right-0 w-[25%] h-[15%] bg-black z-10 pointer-events-auto" />
+                    {/* Top Area Mask: Blocks Title, Channel, and Top-Right buttons */}
+                    <div className="absolute top-0 left-0 w-full h-[15%] bg-black z-10 pointer-events-auto" />
 
-                    {/* Interaction Shield - Full Block */}
-                    <div className="absolute inset-0 z-20 bg-transparent cursor-default" onContextMenu={(e) => e.preventDefault()} />
+                    {/* Bottom Area Mask: Blocks Logo, "Watch on YT", and Native Controls */}
+                    <div className="absolute bottom-0 right-0 w-[30%] h-[18%] bg-black z-10 pointer-events-auto" />
+                    <div className="absolute bottom-0 left-0 w-[15%] h-[18%] bg-black z-10 pointer-events-auto" />
+
+                    {/* Interaction Shield - Impenetrable Click Block */}
+                    <div className="absolute inset-0 z-50 bg-black/0 cursor-default"
+                        onClick={(e) => e.stopPropagation()}
+                        onContextMenu={(e) => e.preventDefault()}
+                    />
 
                     {/* Custom Overlay UI */}
                     <div className="absolute inset-0 pointer-events-none z-30 opacity-0 group-hover:opacity-100 transition-all duration-500">
@@ -384,7 +387,8 @@ const Streaming = () => {
                     </form>
                 </div>
             </div>
-            );
+        </div>
+    );
 };
 
-            export default Streaming;
+export default Streaming;
