@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Orbitron:wght@400;500;700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+    --font-sans: 'Inter', sans-serif;
+    --font-display: 'Orbitron', sans-serif;
+
+    --color-neon-blue: #00f3ff;
+    --color-neon-purple: #bc13fe;
+    --color-neon-pink: #ff0055;
+    --color-neon-green: #0aff00;
+
+    --color-dark-bg: #0a0a0a;
+    --color-dark-surface: #121212;
+    --color-dark-overlay: rgba(18, 18, 18, 0.8);
+
+    --animate-neon-pulse: neonPulse 2s infinite;
+    --animate-float: float 6s ease-in-out infinite;
+
+    @keyframes neonPulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 10px #00f3ff, 0 0 20px #00f3ff;
+        }
+
+        50% {
+            box-shadow: 0 0 20px #bc13fe, 0 0 30px #bc13fe;
+        }
+    }
+
+    @keyframes float {
+
+        0%,
+        100% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-20px);
+        }
+    }
+}
+
+@layer base {
+    body {
+        @apply bg-black text-white font-sans antialiased overflow-x-hidden m-0 p-0 min-h-screen cursor-none;
+    }
+
+    #root {
+        @apply min-h-screen w-full;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-display tracking-wider;
+    }
+}
