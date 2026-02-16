@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTriangle } from 'lucide-react';
-import ReactPlayer from 'react-player';
+// ReactPlayer removed for native Iframe stability
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
 import { ref, onValue } from 'firebase/database';
@@ -119,10 +119,11 @@ const Streaming = () => {
     };
 
     const [url, setUrl] = useState('');
-    const [playing, setPlaying] = useState(false);
+    const [playing, setPlaying] = useState(true); // Default to true for Iframe
     const [volume, setVolume] = useState(0.8);
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [showNativeControls, setShowNativeControls] = useState(true);
 
     // Extraction logic for YouTube Video ID
     const getVideoId = (url) => {
@@ -238,42 +239,13 @@ const Streaming = () => {
                         SOURCE: {url.substring(0, 40)}...
                     </div>
 
-                    {/* Start Overlay if not playing and no error */}
-                    {!playing && !error && (
-                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
-                            {loading ? (
-                                <div className="text-center">
-                                    <div className="w-10 h-10 border-2 border-neon-blue border-t-transparent rounded-full animate-spin mb-4 mx-auto" />
-                                    <p className="text-white font-mono text-[10px] uppercase tracking-widest animate-pulse">Establishing Stream Connection...</p>
-                                    <button
-                                        onClick={() => { setLoading(false); setPlaying(true); }}
-                                        className="mt-4 text-[10px] text-gray-500 underline hover:text-white"
-                                    >
-                                        Gagal memuat? Klik di sini untuk paksa putar
-                                    </button>
-                                    <div className="mt-2">
-                                        <a
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[10px] text-neon-blue hover:underline"
-                                        >
-                                            Buka video asli (YouTube)
-                                        </a>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="text-center">
-                                    <h2 className="text-white/50 text-2xl font-display mb-2 select-none uppercase tracking-widest">Live Stream Ready</h2>
-                                    <div
-                                        onClick={() => setPlaying(true)}
-                                        className="w-20 h-20 rounded-full border-2 border-white/20 flex items-center justify-center mx-auto hover:border-neon-blue hover:bg-neon-blue/10 transition-all cursor-pointer group/play"
-                                    >
-                                        <Play className="text-white group-hover/play:text-neon-blue ml-1" fill="currentColor" size={32} />
-                                    </div>
-                                    <p className="text-gray-500 mt-4 font-mono text-xs">Klik untuk mulai menonton</p>
-                                </div>
-                            )}
+                    {/* Loading State Overlay */}
+                    {loading && (
+                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+                            <div className="text-center">
+                                <div className="w-10 h-10 border-2 border-neon-blue border-t-transparent rounded-full animate-spin mb-4 mx-auto" />
+                                <p className="text-white font-mono text-[10px] uppercase tracking-widest animate-pulse">Establishing Stream Connection...</p>
+                            </div>
                         </div>
                     )}
 
