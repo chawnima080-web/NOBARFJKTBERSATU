@@ -248,7 +248,8 @@ const Streaming = () => {
                         {videoId ? (
                             <iframe
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
-                                className="absolute top-0 left-0 w-full h-full border-0"
+                                // Subtle shift to hide header and logo watermarks without weird zoom
+                                className="absolute top-[-45px] left-0 w-full h-[calc(100%+90px)] border-0"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="Live Stream"
                                 onLoad={() => setLoading(false)}
