@@ -243,143 +243,148 @@ const Streaming = () => {
             {/* Video Player Area */}
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {/* GHOST PLAYER - Native Aspect Ratio with Corner Masking */}
+                    {/* GHOST PLAYER - Native Aspect Ratio with Opaque Masking */}
                     <div className="absolute inset-0 z-0 bg-black">
                         {videoId ? (
                             <iframe
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
-                                // Subtle shift to hide header and logo watermarks without weird zoom
-                                className="absolute top-[-45px] left-0 w-full h-[calc(100%+90px)] border-0"
+                                className="absolute top-0 left-0 w-full h-full border-0"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="Live Stream"
                                 onLoad={() => setLoading(false)}
                             />
                         ) : (
                             <div className="absolute inset-0 flex items-center justify-center bg-black text-white/50">
-                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm text-center">
-                                    <p className="font-mono text-xs uppercase tracking-widest">Signal Not Detected</p>
-                                    <span className="text-[10px] opacity-50 block mt-2">Check stream configuration in admin panel</span>
+                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm text-center font-mono text-xs">
+                                    SIGNAL NOT DETECTED
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Corner Masks - Hides YT Branding without zooming */}
-                    <div className="absolute top-0 left-0 w-48 h-24 bg-gradient-to-br from-black via-black/40 to-transparent z-10 pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-48 h-24 bg-gradient-to-tl from-black via-black/60 to-transparent z-10 pointer-events-none" />
+                    {/* Opaque Masks - Blocks YT Branding 100% (Non-transparent) */}
+                    {/* Top Left: Masks Channel Icon & Title */}
+                    <div className="absolute top-0 left-0 w-[40%] h-[12%] bg-black z-10 pointer-events-auto" />
+                    {/* Top Right: Masks Share/Buttons */}
+                    <div className="absolute top-0 right-0 w-[15%] h-[12%] bg-black z-10 pointer-events-auto" />
+                    {/* Bottom Right: Masks YT Logo & "Watch on YT" */}
+                    <div className="absolute bottom-0 right-0 w-[25%] h-[15%] bg-black z-10 pointer-events-auto" />
 
-                    {/* Simple Loading State (Minimal) */}
-                    {loading && (
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
-                            <div className="w-8 h-8 border-2 border-neon-blue border-t-transparent rounded-full animate-spin" />
-                        </div>
-                    )}
+                    {/* Interaction Shield - Full Block */}
+                    <div className="absolute inset-0 z-20 bg-transparent cursor-default" onContextMenu={(e) => e.preventDefault()} />
 
-                    {/* Custom Overlay Controls */}
-                    <div className="absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/90 to-transparent flex justify-between items-end opacity-0 group-hover:opacity-100 transition-all duration-500 z-30">
-                        <div className="flex flex-col gap-4">
-                            <div className="text-white font-bold flex items-center gap-2 text-base tracking-widest bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
-                                <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]"></span>
-                                LIVE NOBAR JKT48
+                    {/* Custom Overlay UI */}
+                    <div className="absolute inset-0 pointer-events-none z-30 opacity-0 group-hover:opacity-100 transition-all duration-500">
+                        {/* Top Left: Brand Label (Above the black mask) */}
+                        <div className="absolute top-6 left-6 pointer-events-auto">
+                            <div className="text-white font-bold flex items-center gap-2 text-[10px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-4 py-2 rounded-full border border-neon-blue/40 shadow-[0_0_15px_rgba(0,183,255,0.2)]">
+                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
+                                SIGNAL: LIVE
                             </div>
-                            <div className="flex items-center gap-4">
-                                <button
-                                    onClick={() => window.location.reload()}
-                                    className="p-3 bg-neon-blue/20 hover:bg-neon-blue/40 border border-neon-blue/40 rounded-full transition-all group/ref"
-                                    title="Refresh Stream"
-                                >
-                                    <Send size={20} className="rotate-45 group-hover:scale-110 transition-transform" />
-                                </button>
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-gray-400 uppercase font-mono">Signal Strength</span>
-                                    <span className="text-xs text-neon-green font-bold">EXCELLENT (1080p)</span>
+                        </div>
+
+                        {/* Bottom Full Controls */}
+                        <div className="absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/95 to-transparent flex justify-between items-end pointer-events-auto">
+                            <div className="flex flex-col gap-2">
+                                <div className="text-neon-blue font-bold text-[10px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={() => window.location.reload()}
+                                        className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all group/ref"
+                                        title="Refresh Stream"
+                                    >
+                                        <Send size={18} className="rotate-45 group-hover:scale-110 transition-transform text-neon-blue" />
+                                    </button>
+                                    <div className="flex flex-col">
+                                        <span className="text-[8px] text-gray-500 uppercase font-mono tracking-wider">Sync Status</span>
+                                        <span className="text-[10px] text-neon-green font-bold">SECURE CHANNEL</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10">
-                            <div className="flex items-center gap-3 group/vol">
-                                <Volume2
-                                    size={20}
-                                    className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`}
-                                    onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
-                                />
-                                <input
-                                    type="range"
-                                    min="0" max="1" step="0.1"
-                                    value={volume}
-                                    onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                    className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
-                                />
+                            <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                                <div className="flex items-center gap-3 group/vol">
+                                    <Volume2
+                                        size={20}
+                                        className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`}
+                                        onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
+                                    />
+                                    <input
+                                        type="range"
+                                        min="0" max="1" step="0.1"
+                                        value={volume}
+                                        onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                        className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
+                                    />
+                                </div>
+                                <button
+                                    className="p-2 hover:bg-white/10 rounded-lg transition-colors group/fs"
+                                    onClick={() => {
+                                        const playerEl = document.getElementById('main-player-container');
+                                        if (document.fullscreenElement) {
+                                            document.exitFullscreen();
+                                        } else if (playerEl) {
+                                            playerEl.requestFullscreen();
+                                        }
+                                    }}
+                                >
+                                    <Maximize size={20} className="group-hover:scale-110 transition-transform" />
+                                </button>
                             </div>
-                            <button
-                                className="p-2 hover:bg-white/10 rounded-lg transition-colors group/fs"
-                                onClick={() => {
-                                    const playerEl = document.getElementById('main-player-container');
-                                    if (document.fullscreenElement) {
-                                        document.exitFullscreen();
-                                    } else if (playerEl) {
-                                        playerEl.requestFullscreen();
-                                    }
-                                }}
-                            >
-                                <Maximize size={20} className="group-hover:scale-110 transition-transform" />
+                        </div>
+                    </div>
+
+                    {/* Bottom Signal Meta */}
+                    <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
+                        <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                                <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
+                            </div>
+                            <div className="h-3 w-px bg-white/10" />
+                            <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
+                        </div>
+                        <div className="text-[9px] text-gray-600 font-mono tracking-widest italic uppercase">
+                            {activeTicket || 'No Ticket'}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Chat Area */}
+                <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
+                    <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
+                        <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
+                        <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
+                            <Users size={12} /> 12.5k
+                        </div>
+                    </div>
+
+                    <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                        {messages.map((msg, idx) => (
+                            <div key={idx} className="text-sm">
+                                <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
+                                <span className="text-gray-300 break-words">{msg.text}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue"
+                                placeholder="Say something..."
+                            />
+                            <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
+                                <Send size={16} />
                             </button>
                         </div>
-                    </div>
-                </div>
-
-                {/* Bottom Signal Meta */}
-                <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                            <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
-                        </div>
-                        <div className="h-3 w-px bg-white/10" />
-                        <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
-                    </div>
-                    <div className="text-[9px] text-gray-600 font-mono tracking-widest italic uppercase">
-                        {activeTicket || 'No Ticket'}
-                    </div>
+                    </form>
                 </div>
             </div>
-
-            {/* Chat Area */}
-            <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
-                <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
-                    <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
-                    <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
-                        <Users size={12} /> 12.5k
-                    </div>
-                </div>
-
-                <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                    {messages.map((msg, idx) => (
-                        <div key={idx} className="text-sm">
-                            <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
-                            <span className="text-gray-300 break-words">{msg.text}</span>
-                        </div>
-                    ))}
-                </div>
-
-                <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue"
-                            placeholder="Say something..."
-                        />
-                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
-                            <Send size={16} />
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
+            );
 };
 
-export default Streaming;
+            export default Streaming;
