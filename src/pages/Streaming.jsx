@@ -15,10 +15,15 @@ const Streaming = () => {
             if (data) {
                 if (data.tickets) setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 if (data.settings && data.settings.streamUrl) {
-                    setUrl(data.settings.streamUrl);
-                    // If URL changed, reset loading but add a timeout fallback
-                    setLoading(true);
-                    setTimeout(() => setLoading(false), 8000);
+                    // Only trigger loading if the URL is actually different
+                    setUrl(prev => {
+                        if (prev !== data.settings.streamUrl) {
+                            setLoading(true);
+                            setTimeout(() => setLoading(false), 8000);
+                            return data.settings.streamUrl;
+                        }
+                        return prev;
+                    });
                 }
             }
         });
@@ -59,7 +64,7 @@ const Streaming = () => {
 
     // Global Heartbeat Logic: Prevent Multi-Device via Firebase
     useEffect(() => {
-        if (!isAuthorized || !activeTicket) return;
+        if (!isAuthorized || !activeTicket || sessionConflict) return;
 
         const sessionRef = ref(db, `sessions/${activeTicket}`);
         let heartbeatInterval;
@@ -69,12 +74,12 @@ const Streaming = () => {
             const data = snapshot.val();
             if (!data) return;
 
-            // If someone else took over AND they are still active (within 15s grace)
+            // If someone else took over AND they are still active (within 40s grace)
             if (data.id !== sessionId) {
                 const now = Date.now();
                 const lastSeen = data.timestamp || 0;
 
-                if (now - lastSeen < 15000) {
+                if (now - lastSeen < 40000) {
                     setSessionConflict(true);
                     setIsAuthorized(false);
                     if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -85,8 +90,6 @@ const Streaming = () => {
 
         // 2. Setup Periodic Heartbeat
         const updateHeartbeat = () => {
-            // ONLY update if we are not in conflict
-            // This prevents "ping-ponging" between two screens
             set(sessionRef, {
                 id: sessionId,
                 timestamp: Date.now()
@@ -95,7 +98,7 @@ const Streaming = () => {
 
         // Initial update and start interval
         updateHeartbeat();
-        heartbeatInterval = setInterval(updateHeartbeat, 8000);
+        heartbeatInterval = setInterval(updateHeartbeat, 15000);
 
         // 3. Cleanup
         onDisconnect(sessionRef).remove();
@@ -104,7 +107,7 @@ const Streaming = () => {
             unsubscribe();
             if (heartbeatInterval) clearInterval(heartbeatInterval);
         };
-    }, [isAuthorized, activeTicket, sessionId]);
+    }, [isAuthorized, activeTicket, sessionId, sessionConflict]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -258,13 +261,10 @@ const Streaming = () => {
                         SOURCE: {url.substring(0, 40)}...
                     </div>
 
-                    {/* Loading State Overlay */}
+                    {/* Simple Loading State (Minimal) */}
                     {loading && (
-                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
-                            <div className="text-center">
-                                <div className="w-10 h-10 border-2 border-neon-blue border-t-transparent rounded-full animate-spin mb-4 mx-auto" />
-                                <p className="text-white font-mono text-[10px] uppercase tracking-widest animate-pulse">Establishing Stream Connection...</p>
-                            </div>
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+                            <div className="w-8 h-8 border-2 border-neon-blue border-t-transparent rounded-full animate-spin" />
                         </div>
                     )}
 
