@@ -62,43 +62,47 @@ const Streaming = () => {
         if (!isAuthorized || !activeTicket) return;
 
         const sessionRef = ref(db, `sessions/${activeTicket}`);
+        let heartbeatInterval;
 
-        // 1. Initial Check & Register
+        // 1. Listen for changes in ownership
         const unsubscribe = onValue(sessionRef, (snapshot) => {
             const data = snapshot.val();
-            if (data && data.id !== sessionId) {
-                // Check for TTL (15s)
+            if (!data) return;
+
+            // If someone else took over AND they are still active (within 15s grace)
+            if (data.id !== sessionId) {
                 const now = Date.now();
-                const lastSeen = data.timestamp;
+                const lastSeen = data.timestamp || 0;
+
                 if (now - lastSeen < 15000) {
                     setSessionConflict(true);
                     setIsAuthorized(false);
+                    if (heartbeatInterval) clearInterval(heartbeatInterval);
                     return;
                 }
             }
-
-            // If no conflict or session expired, update our heartbeat
-            set(sessionRef, {
-                id: sessionId,
-                timestamp: serverTimestamp()
-            });
-            setSessionConflict(false);
         });
 
         // 2. Setup Periodic Heartbeat
-        const interval = setInterval(() => {
+        const updateHeartbeat = () => {
+            // ONLY update if we are not in conflict
+            // This prevents "ping-ponging" between two screens
             set(sessionRef, {
                 id: sessionId,
-                timestamp: serverTimestamp()
-            });
-        }, 8000);
+                timestamp: Date.now()
+            }).catch(e => console.error("Heartbeat update failed:", e));
+        };
 
-        // 3. Cleanup on disconnect (Firebase feature)
+        // Initial update and start interval
+        updateHeartbeat();
+        heartbeatInterval = setInterval(updateHeartbeat, 8000);
+
+        // 3. Cleanup
         onDisconnect(sessionRef).remove();
 
         return () => {
             unsubscribe();
-            clearInterval(interval);
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
         };
     }, [isAuthorized, activeTicket, sessionId]);
 
@@ -170,13 +174,16 @@ const Streaming = () => {
                     </p>
                     <button
                         onClick={async () => {
-                            // Force overwrite Firebase session
+                            // Force overwrite Firebase session IMMEDIATELY
                             const sessionRef = ref(db, `sessions/${activeTicket}`);
                             await set(sessionRef, {
                                 id: sessionId,
-                                timestamp: serverTimestamp()
+                                timestamp: Date.now()
                             });
-                            window.location.reload();
+                            // Small delay to let Firebase sync
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 500);
                         }}
                         className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]"
                     >
