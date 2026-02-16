@@ -258,14 +258,15 @@ const Streaming = () => {
                         )}
                     </div>
 
-                    {/* OPAQUE MASKS - Covers YT Branding precisely */}
-                    <div className="absolute top-0 left-0 w-[40%] h-12 bg-black z-10 pointer-events-auto" />
+                    {/* PROFESSIONAL GHOST MASKING */}
+                    {/* Top Mask: Covers Title & Channel Info with slight gradient for natural feel */}
+                    <div className="absolute top-0 left-0 w-full h-16 bg-gradient-to-b from-black via-black/90 to-transparent z-10 pointer-events-auto" />
 
-                    <div className="absolute bottom-0 right-0 w-48 h-12 bg-black z-10 pointer-events-auto" />
+                    {/* Bottom Right Mask: Covers YouTube Logo / "Watch on YouTube" */}
+                    <div className="absolute bottom-0 right-0 w-48 h-16 bg-gradient-to-t from-black to-transparent z-10 pointer-events-auto" />
 
-                    {/* Interaction Shield - Impenetrable Click Block */}
-                    <div className="absolute inset-0 z-50 bg-black/0 cursor-default"
-                        onClick={(e) => e.stopPropagation()}
+                    {/* Interaction Shield - Blocks YT but below our controls UI */}
+                    <div className="absolute inset-0 z-20 bg-transparent cursor-default"
                         onContextMenu={(e) => e.preventDefault()}
                     />
 
@@ -284,9 +285,10 @@ const Streaming = () => {
                                 <div className="flex items-center gap-3">
                                     <button
                                         onClick={() => window.location.reload()}
-                                        className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue"
+                                        className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue group/play"
+                                        title="Play/Refresh Stream"
                                     >
-                                        <Send size={16} className="rotate-45" />
+                                        <Play size={16} className="fill-current group-hover/play:scale-110 transition-transform" />
                                     </button>
                                     <div className="flex flex-col">
                                         <span className="text-[8px] text-gray-500 uppercase font-mono tracking-wider">Sync Status</span>
@@ -327,55 +329,53 @@ const Streaming = () => {
                         </div>
                     </div>
 
-                    {/* Bottom Signal Meta */}
-                    <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
-                        <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1.5">
-                                <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                                <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
-                            </div>
-                            <div className="h-3 w-px bg-white/10" />
-                            <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
+                </div>
+
+                {/* Bottom Signal Meta */}
+                <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                            <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
                         </div>
-                        <div className="text-[9px] text-gray-600 font-mono tracking-widest italic uppercase">
-                            {activeTicket || 'No Ticket'}
-                        </div>
+                        <div className="h-3 w-px bg-white/10" />
+                        <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Chat Area */}
+            <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
+                <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
+                    <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
+                    <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
+                        <Users size={12} /> 12.5k
                     </div>
                 </div>
 
-                {/* Chat Area */}
-                <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
-                    <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
-                        <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
-                        <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
-                            <Users size={12} /> 12.5k
+                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                    {messages.map((msg, idx) => (
+                        <div key={idx} className="text-sm">
+                            <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
+                            <span className="text-gray-300 break-words">{msg.text}</span>
                         </div>
-                    </div>
-
-                    <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                        {messages.map((msg, idx) => (
-                            <div key={idx} className="text-sm">
-                                <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
-                                <span className="text-gray-300 break-words">{msg.text}</span>
-                            </div>
-                        ))}
-                    </div>
-
-                    <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue"
-                                placeholder="Say something..."
-                            />
-                            <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
-                                <Send size={16} />
-                            </button>
-                        </div>
-                    </form>
+                    ))}
                 </div>
+
+                <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
+                    <div className="relative">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue"
+                            placeholder="Say something..."
+                        />
+                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
+                            <Send size={16} />
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );
