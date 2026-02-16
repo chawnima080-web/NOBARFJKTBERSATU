@@ -212,9 +212,20 @@ const Streaming = () => {
                         url={url}
                         playing={playing}
                         volume={volume}
+                        muted={volume === 0} // Sync muted state
                         width="100%"
                         height="100%"
                         controls={false}
+                        config={{
+                            youtube: {
+                                playerVars: {
+                                    showinfo: 0,
+                                    enablejsapi: 1,
+                                    origin: window.location.origin,
+                                    rel: 0
+                                }
+                            }
+                        }}
                         onReady={() => {
                             console.log("Player Ready");
                             setLoading(false);
@@ -233,6 +244,11 @@ const Streaming = () => {
                         style={{ position: 'absolute', top: 0, left: 0 }}
                     />
 
+                    {/* Debug URL Overlay (Small & Subtle) */}
+                    <div className="absolute top-4 left-4 z-50 text-[10px] font-mono text-white/30 truncate max-w-[200px] pointer-events-none">
+                        SOURCE: {url.substring(0, 40)}...
+                    </div>
+
                     {/* Start Overlay if not playing and no error */}
                     {!playing && !error && (
                         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
@@ -246,6 +262,16 @@ const Streaming = () => {
                                     >
                                         Gagal memuat? Klik di sini untuk paksa putar
                                     </button>
+                                    <div className="mt-2">
+                                        <a
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-[10px] text-neon-blue hover:underline"
+                                        >
+                                            Buka video asli (YouTube)
+                                        </a>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="text-center">
@@ -276,7 +302,11 @@ const Streaming = () => {
 
                         <div className="flex items-center gap-6 text-white text-sm font-bold">
                             <div className="flex items-center gap-2 group/vol">
-                                <Volume2 size={18} className="text-gray-400 group-hover/vol:text-white" />
+                                <Volume2
+                                    size={18}
+                                    className={`cursor-pointer ${volume === 0 ? 'text-red-500' : 'text-gray-400 group-hover/vol:text-white'}`}
+                                    onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
+                                />
                                 <input
                                     type="range"
                                     min="0" max="1" step="0.1"
