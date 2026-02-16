@@ -243,28 +243,33 @@ const Streaming = () => {
             {/* Video Player Area */}
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {/* ULTIMATE GHOST PLAYER - Aggressive Cropping to Bury YouTube Watermarks */}
-                    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                    {/* GHOST PLAYER - Native Aspect Ratio with Corner Masking */}
+                    <div className="absolute inset-0 z-0 bg-black">
                         {videoId ? (
                             <iframe
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
-                                // Ultra-Aggressive Crop: W-116%, H-140%. Centers high to bury top-channel UI and bottom-yt logo.
-                                className="absolute top-[-20%] left-[-8%] w-[116%] h-[140%] border-0 scale-[1.02]"
+                                className="absolute top-0 left-0 w-full h-full border-0"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="Live Stream"
                                 onLoad={() => setLoading(false)}
                             />
                         ) : (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black text-gray-500 font-mono text-xs p-10 text-center text-white/50">
-                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm">
-                                    Link Video YouTube Tidak Terdeteksi di Admin Panel. <br />
-                                    <span className="text-[10px] opacity-50 block mt-2">Mohon cek link di /managemen-web-nobar</span>
+                            <div className="absolute inset-0 flex items-center justify-center bg-black text-white/50">
+                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm text-center">
+                                    <p className="font-mono text-xs uppercase tracking-widest">Signal Not Detected</p>
+                                    <span className="text-[10px] opacity-50 block mt-2">Check stream configuration in admin panel</span>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Interaction Shield - Fully Blocking and Anti-Glitched */}
+                    {/* Corner Masks - Hides YT Branding without zooming */}
+                    <div className="absolute top-0 left-0 w-32 h-16 bg-gradient-to-br from-black via-black/40 to-transparent z-10 pointer-events-none" />
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-black to-transparent z-10 pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-40 h-20 bg-gradient-to-tl from-black via-black/60 to-transparent z-10 pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-black to-transparent z-10 pointer-events-none" />
+
+                    {/* Interaction Shield */}
                     <div className="absolute inset-0 z-20 bg-transparent cursor-default" onContextMenu={(e) => e.preventDefault()} />
 
                     {/* Debug URL Overlay (Small & Subtle) */}
