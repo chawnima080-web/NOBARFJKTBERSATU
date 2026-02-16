@@ -13,7 +13,7 @@ const Streaming = () => {
         const unsubscribe = onValue(dbRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                if (data.tickets) setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
+                setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 if (data.settings && data.settings.streamUrl) {
                     // Only trigger loading if the URL is actually different
                     setUrl(prev => {
@@ -31,10 +31,7 @@ const Streaming = () => {
     }, []);
 
     const [ticketInput, setTicketInput] = useState('');
-    const [isAuthorized, setIsAuthorized] = useState(() => {
-        // Initial check: is there a persisted ticket?
-        return localStorage.getItem('active_jkt_ticket') ? true : false;
-    });
+    const [isAuthorized, setIsAuthorized] = useState(false);
     const [authError, setAuthError] = useState('');
     const [activeTicket, setActiveTicket] = useState(() => {
         return localStorage.getItem('active_jkt_ticket') || null;
@@ -59,8 +56,13 @@ const Streaming = () => {
 
         if (targetTicket && currentTickets.includes(targetTicket)) {
             handleAuthorization(targetTicket);
+        } else if (isAuthorized) {
+            // Revoke access if the ticket is no longer valid or list is empty
+            setIsAuthorized(false);
+            setActiveTicket(null);
+            localStorage.removeItem('active_jkt_ticket');
         }
-    }, [currentTickets]);
+    }, [currentTickets, isAuthorized]);
 
     // Global Heartbeat Logic: Prevent Multi-Device via Firebase
     useEffect(() => {
