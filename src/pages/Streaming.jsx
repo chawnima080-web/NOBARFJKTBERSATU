@@ -243,32 +243,25 @@ const Streaming = () => {
             {/* Video Player Area */}
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {/* GHOST PLAYER - Native Aspect Ratio with Opaque Masking */}
-                    <div className="absolute inset-0 z-0 bg-black">
+                    {/* GHOST PLAYER - Native Aspect Ratio */}
+                    <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
                         {videoId ? (
                             <iframe
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
-                                className="absolute top-0 left-0 w-full h-full border-0"
+                                className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="Live Stream"
                                 onLoad={() => setLoading(false)}
                             />
                         ) : (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black text-white/50">
-                                <div className="max-w-xs border border-white/10 p-4 rounded-xl backdrop-blur-sm text-center font-mono text-xs">
-                                    SIGNAL NOT DETECTED
-                                </div>
-                            </div>
+                            <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
                         )}
                     </div>
 
-                    {/* Opaque Masks - Blocks YT Branding 100% (Non-transparent) */}
-                    {/* Top Area Mask: Blocks Title, Channel, and Top-Right buttons */}
-                    <div className="absolute top-0 left-0 w-full h-[15%] bg-black z-10 pointer-events-auto" />
+                    {/* OPAQUE MASKS - Covers YT Branding precisely */}
+                    <div className="absolute top-0 left-0 w-[40%] h-12 bg-black z-10 pointer-events-auto" />
 
-                    {/* Bottom Area Mask: Blocks Logo, "Watch on YT", and Native Controls */}
-                    <div className="absolute bottom-0 right-0 w-[30%] h-[18%] bg-black z-10 pointer-events-auto" />
-                    <div className="absolute bottom-0 left-0 w-[15%] h-[18%] bg-black z-10 pointer-events-auto" />
+                    <div className="absolute bottom-0 right-0 w-48 h-12 bg-black z-10 pointer-events-auto" />
 
                     {/* Interaction Shield - Impenetrable Click Block */}
                     <div className="absolute inset-0 z-50 bg-black/0 cursor-default"
@@ -276,31 +269,28 @@ const Streaming = () => {
                         onContextMenu={(e) => e.preventDefault()}
                     />
 
-                    {/* Custom Overlay UI */}
+                    {/* CUSTOM OVERLAY UI - Highest Z-index */}
                     <div className="absolute inset-0 pointer-events-none z-30 opacity-0 group-hover:opacity-100 transition-all duration-500">
-                        {/* Top Left: Brand Label (Above the black mask) */}
-                        <div className="absolute top-6 left-6 pointer-events-auto">
-                            <div className="text-white font-bold flex items-center gap-2 text-[10px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-4 py-2 rounded-full border border-neon-blue/40 shadow-[0_0_15px_rgba(0,183,255,0.2)]">
+                        <div className="absolute top-4 left-4 pointer-events-auto">
+                            <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40 shadow-lg">
                                 <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
                                 SIGNAL: LIVE
                             </div>
                         </div>
 
-                        {/* Bottom Full Controls */}
-                        <div className="absolute bottom-0 left-0 w-full p-8 bg-gradient-to-t from-black via-black/95 to-transparent flex justify-between items-end pointer-events-auto">
+                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end pointer-events-auto">
                             <div className="flex flex-col gap-2">
-                                <div className="text-neon-blue font-bold text-[10px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
-                                <div className="flex items-center gap-4">
+                                <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
+                                <div className="flex items-center gap-3">
                                     <button
                                         onClick={() => window.location.reload()}
-                                        className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all group/ref"
-                                        title="Refresh Stream"
+                                        className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue"
                                     >
-                                        <Send size={18} className="rotate-45 group-hover:scale-110 transition-transform text-neon-blue" />
+                                        <Send size={16} className="rotate-45" />
                                     </button>
                                     <div className="flex flex-col">
                                         <span className="text-[8px] text-gray-500 uppercase font-mono tracking-wider">Sync Status</span>
-                                        <span className="text-[10px] text-neon-green font-bold">SECURE CHANNEL</span>
+                                        <span className="text-[9px] text-neon-green font-bold">SECURE CHANNEL</span>
                                     </div>
                                 </div>
                             </div>
