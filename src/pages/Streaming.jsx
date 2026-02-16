@@ -264,18 +264,8 @@ const Streaming = () => {
                     </div>
 
                     {/* Corner Masks - Hides YT Branding without zooming */}
-                    <div className="absolute top-0 left-0 w-32 h-16 bg-gradient-to-br from-black via-black/40 to-transparent z-10 pointer-events-none" />
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-black to-transparent z-10 pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-40 h-20 bg-gradient-to-tl from-black via-black/60 to-transparent z-10 pointer-events-none" />
-                    <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-black to-transparent z-10 pointer-events-none" />
-
-                    {/* Interaction Shield */}
-                    <div className="absolute inset-0 z-20 bg-transparent cursor-default" onContextMenu={(e) => e.preventDefault()} />
-
-                    {/* Debug URL Overlay (Small & Subtle) */}
-                    <div className="absolute top-4 left-4 z-50 text-[10px] font-mono text-white/30 truncate max-w-[200px] pointer-events-none">
-                        SOURCE: {url.substring(0, 40)}...
-                    </div>
+                    <div className="absolute top-0 left-0 w-48 h-24 bg-gradient-to-br from-black via-black/40 to-transparent z-10 pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-48 h-24 bg-gradient-to-tl from-black via-black/60 to-transparent z-10 pointer-events-none" />
 
                     {/* Simple Loading State (Minimal) */}
                     {loading && (
