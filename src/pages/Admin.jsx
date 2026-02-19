@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Users, Ticket, Save, Plus, Trash2, Calendar, Layout, RefreshCw, Loader2 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, remove } from 'firebase/database';
 import { members } from '../data/members';
 
 const Admin = () => {
@@ -124,6 +124,17 @@ const Admin = () => {
         setTickets([...tickets, ...newBatch]);
     };
 
+    const clearChat = async () => {
+        if (window.confirm('Hapus semua riwayat chat di database?')) {
+            try {
+                await remove(ref(db, 'chats'));
+                alert('Riwayat chat berhasil dihapus!');
+            } catch (error) {
+                console.error("Clear chat error:", error);
+            }
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-dark-bg flex items-center justify-center text-neon-blue">
@@ -147,6 +158,12 @@ const Admin = () => {
                     </div>
                     <div className="flex items-center gap-4">
                         {saveStatus && <span className="text-neon-green font-mono text-sm animate-pulse">{saveStatus}</span>}
+                        <button
+                            onClick={clearChat}
+                            className="bg-neon-pink/10 border border-neon-pink/30 text-neon-pink px-4 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-neon-pink hover:text-white transition-all text-sm"
+                        >
+                            <Trash2 size={16} /> HAPUS CHAT
+                        </button>
                         <button
                             onClick={handleSave}
                             className="bg-neon-blue text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-600 transition-all shadow-[0_0_20px_rgba(0,183,255,0.2)]"
@@ -182,6 +199,15 @@ const Admin = () => {
                                             value={settings.subtitle}
                                             onChange={(e) => setSettings({ ...settings, subtitle: e.target.value })}
                                             className="w-full bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-mono text-gray-500 uppercase mb-2">Waktu Show (Countdown)</label>
+                                        <input
+                                            type="datetime-local"
+                                            value={settings.date ? settings.date.substring(0, 16) : ''}
+                                            onChange={(e) => setSettings({ ...settings, date: e.target.value })}
+                                            className="w-full bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none font-mono"
                                         />
                                     </div>
                                 </div>

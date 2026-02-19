@@ -3,7 +3,7 @@ import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTria
 // ReactPlayer removed for native Iframe stability
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
-import { ref, onValue, set, onDisconnect, serverTimestamp } from 'firebase/database';
+import { ref, onValue, set, onDisconnect, serverTimestamp, push, limitToLast, query } from 'firebase/database';
 
 const Streaming = () => {
     const [currentTickets, setCurrentTickets] = useState(['TRIAL-JKT48']);
@@ -17,7 +17,6 @@ const Streaming = () => {
                 setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
                 if (data.settings && data.settings.streamUrl) {
-                    // Only trigger loading if the URL is actually different
                     setUrl(prev => {
                         if (prev !== data.settings.streamUrl) {
                             setLoading(true);
@@ -29,7 +28,21 @@ const Streaming = () => {
                 }
             }
         });
-        return () => unsubscribe();
+
+        // --- Global Chat Sync ---
+        const chatRef = query(ref(db, 'chats'), limitToLast(50));
+        const unsubscribeChat = onValue(chatRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const chatList = Object.values(data).sort((a, b) => a.timestamp - b.timestamp);
+                setMessages(chatList);
+            }
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeChat();
+        };
     }, []);
 
     const [ticketInput, setTicketInput] = useState('');
@@ -38,6 +51,10 @@ const Streaming = () => {
     const [activeTicket, setActiveTicket] = useState(() => {
         return localStorage.getItem('active_jkt_ticket') || null;
     });
+    const [userName, setUserName] = useState(() => {
+        return localStorage.getItem('jkt_user_name') || '';
+    });
+    const [tempName, setTempName] = useState('');
     const [sessionId] = useState(() => {
         // Persist session ID in the tab's storage so refresh doesn't count as a new device
         let id = sessionStorage.getItem('jkt_session_id');
@@ -59,14 +76,17 @@ const Streaming = () => {
         const allValidTickets = [...currentTickets, ...publicTickets];
 
         if (targetTicket && allValidTickets.includes(targetTicket)) {
-            handleAuthorization(targetTicket);
+            // CRITICAL: Don't re-authorize if we are currently in a conflict state
+            if (!sessionConflict && (activeTicket !== targetTicket || !isAuthorized)) {
+                handleAuthorization(targetTicket);
+            }
         } else if (isAuthorized) {
             // Revoke access if the ticket is no longer valid or list is empty
             setIsAuthorized(false);
             setActiveTicket(null);
             localStorage.removeItem('active_jkt_ticket');
         }
-    }, [currentTickets, isAuthorized]);
+    }, [currentTickets, isAuthorized, sessionConflict]);
 
     // Global Heartbeat Logic: Prevent Multi-Device via Firebase
     useEffect(() => {
@@ -90,7 +110,8 @@ const Streaming = () => {
 
                 if (now - lastSeen < 40000) {
                     setSessionConflict(true);
-                    setIsAuthorized(false);
+                    // STOP: Don't call setIsAuthorized(false) here, 
+                    // let sessionConflict state handle the UI blocker independently.
                     if (heartbeatInterval) clearInterval(heartbeatInterval);
                     return;
                 }
@@ -98,11 +119,18 @@ const Streaming = () => {
         });
 
         // 2. Setup Periodic Heartbeat
-        const updateHeartbeat = () => {
-            set(sessionRef, {
-                id: sessionId,
-                timestamp: Date.now()
-            }).catch(e => console.error("Heartbeat update failed:", e));
+        const updateHeartbeat = async () => {
+            // Safety: Check if we are still active before writing
+            if (sessionConflict) return;
+
+            try {
+                await set(sessionRef, {
+                    id: sessionId,
+                    timestamp: Date.now()
+                });
+            } catch (e) {
+                console.error("Heartbeat update failed:", e);
+            }
         };
 
         // Initial update and start interval
@@ -124,6 +152,12 @@ const Streaming = () => {
         setAuthError('');
         setSessionConflict(false);
 
+        // --- PUBLIC TICKET LOGIC: Always re-set name ---
+        if (publicTickets.includes(ticket)) {
+            setUserName('');
+            localStorage.removeItem('jkt_user_name');
+        }
+
         // Persist to LocalStorage
         localStorage.setItem('active_jkt_ticket', ticket);
 
@@ -142,8 +176,21 @@ const Streaming = () => {
         }
     };
 
+    const handleNameSubmit = (e) => {
+        e.preventDefault();
+        const trimmedName = tempName.trim();
+        if (trimmedName.length >= 3) {
+            setUserName(trimmedName);
+            localStorage.setItem('jkt_user_name', trimmedName);
+        } else {
+            setAuthError('Nama minimal 3 karakter.');
+        }
+    };
+
     const [url, setUrl] = useState('');
-    const [playing, setPlaying] = useState(true); // Default to true for Iframe
+    const [quality, setQuality] = useState('hd1080');
+    const [showQualityMenu, setShowQualityMenu] = useState(false);
+    const [playing, setPlaying] = useState(true);
     const [volume, setVolume] = useState(0.8);
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -164,11 +211,21 @@ const Streaming = () => {
     ]);
     const [input, setInput] = useState('');
 
-    const handleSend = (e) => {
+    const handleSend = async (e) => {
         e.preventDefault();
         if (input.trim()) {
-            setMessages([...messages, { user: 'You', text: input }]);
-            setInput('');
+            const newMessage = {
+                user: userName || 'Guest',
+                text: input,
+                timestamp: serverTimestamp()
+            };
+
+            try {
+                await push(ref(db, 'chats'), newMessage);
+                setInput('');
+            } catch (error) {
+                console.error("Chat send failed:", error);
+            }
         }
     };
 
@@ -246,6 +303,50 @@ const Streaming = () => {
         );
     }
 
+    // --- Name Gate UI (Step 2) ---
+    if (!userName) {
+        return (
+            <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-white">
+                <div className="w-full max-w-md bg-dark-surface border border-white/10 p-8 rounded-2xl text-center">
+                    <div className="w-16 h-16 bg-neon-pink/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Users className="text-neon-pink" size={32} />
+                    </div>
+                    <h2 className="text-white text-2xl font-display mb-2">SIAPA NAMA ANDA?</h2>
+                    <p className="text-gray-400 text-sm mb-8">Nama ini akan muncul saat Anda mengirim komentar di live chat.</p>
+
+                    <form onSubmit={handleNameSubmit} className="space-y-4">
+                        <div className="relative">
+                            <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                            <input
+                                type="text"
+                                value={tempName}
+                                onChange={(e) => setTempName(e.target.value)}
+                                placeholder="NAMA TAMPILAN..."
+                                maxLength={20}
+                                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:border-neon-pink transition-all font-bold tracking-wider"
+                            />
+                        </div>
+                        {authError && <p className="text-neon-pink text-xs text-left px-1">{authError}</p>}
+                        <button className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]">
+                            MULAI MENONTON
+                        </button>
+                    </form>
+
+                    <button
+                        onClick={() => {
+                            localStorage.removeItem('active_jkt_ticket');
+                            localStorage.removeItem('jkt_user_name');
+                            window.location.reload();
+                        }}
+                        className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest hover:text-white transition-colors"
+                    >
+                        GANTI TIKET
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
             {/* Video Player Area */}
@@ -255,16 +356,28 @@ const Streaming = () => {
                     <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
                         {videoId ? (
                             <iframe
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}`}
+                                key={`${videoId}-${quality}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="Live Stream"
-                                onLoad={() => setLoading(false)}
+                                onLoad={() => {
+                                    // Increased delay to 4s to ensure YT UI is fully hidden
+                                    setTimeout(() => setLoading(false), 4000);
+                                }}
                             />
                         ) : (
                             <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
                         )}
                     </div>
+
+                    {/* BLACK DELAY OVERLAY - Hides YT UI during reload */}
+                    {loading && (
+                        <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4 transition-all duration-500">
+                            <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
+                            <div className="text-neon-blue font-mono text-[9px] tracking-[0.3em] uppercase animate-pulse">Switching Quality... {quality.replace('hd', '')}p</div>
+                        </div>
+                    )}
 
                     {/* PROFESSIONAL GHOST MASKING */}
                     {/* Top Mask: Covers Title & Channel Info with slight gradient for natural feel */}
@@ -305,7 +418,42 @@ const Streaming = () => {
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                            <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10 relative">
+                                {/* Quality Selector */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setShowQualityMenu(!showQualityMenu)}
+                                        className="flex flex-col items-center group cursor-pointer"
+                                    >
+                                        <Settings size={20} className={`transition-colors ${showQualityMenu ? 'text-neon-blue' : 'text-gray-300 group-hover:text-white'}`} />
+                                        <span className="text-[8px] mt-1 font-mono uppercase tracking-tighter">{quality.replace('hd', '')}P</span>
+                                    </button>
+
+                                    {showQualityMenu && (
+                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[120px] shadow-2xl backdrop-blur-xl z-50">
+                                            {[
+                                                { label: '1080p (HD)', value: 'hd1080' },
+                                                { label: '720p (HD)', value: 'hd720' },
+                                                { label: '480p (SD)', value: 'large' },
+                                                { label: '360p (SD)', value: 'medium' }
+                                            ].map((q) => (
+                                                <button
+                                                    key={q.value}
+                                                    onClick={() => {
+                                                        setQuality(q.value);
+                                                        setShowQualityMenu(false);
+                                                        setLoading(true);
+                                                        setTimeout(() => setLoading(false), 2000);
+                                                    }}
+                                                    className={`w-full text-left px-4 py-2 rounded-lg text-xs font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                                >
+                                                    {q.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex items-center gap-3 group/vol">
                                     <Volume2
                                         size={20}
