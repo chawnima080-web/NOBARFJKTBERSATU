@@ -16,15 +16,20 @@ const Streaming = () => {
             if (data) {
                 setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
-                if (data.settings && data.settings.streamUrl) {
+                // Always sync settings structure
+                if (data.settings) {
+                    const newUrl = data.settings.streamUrl || '';
                     setUrl(prev => {
-                        if (prev !== data.settings.streamUrl) {
+                        if (prev !== newUrl) {
                             setLoading(true);
-                            setTimeout(() => setLoading(false), 8000);
-                            return data.settings.streamUrl;
+                            setTimeout(() => setLoading(false), 4000);
+                            return newUrl;
                         }
                         return prev;
                     });
+                } else {
+                    // Reset if settings missing
+                    setUrl('');
                 }
             }
         });
@@ -195,6 +200,8 @@ const Streaming = () => {
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
     const [showNativeControls, setShowNativeControls] = useState(true);
+    const [showControls, setShowControls] = useState(false);
+    const [lastTap, setLastTap] = useState(0);
 
     // Extraction logic for YouTube Video ID
     const getVideoId = (url) => {
@@ -205,7 +212,7 @@ const Streaming = () => {
         return (match && match[2].length === 11) ? match[2] : null;
     };
 
-    const videoId = getVideoId(url);
+    const videoId = getVideoId(url?.trim());
     const [messages, setMessages] = useState([
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
@@ -352,22 +359,23 @@ const Streaming = () => {
             {/* Video Player Area */}
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {/* GHOST PLAYER - Native Aspect Ratio */}
-                    <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
+                    {/* GHOST PLAYER - Supports YouTube and Generic Iframe */}
+                    <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
                         {videoId ? (
                             <iframe
                                 key={`${videoId}-${quality}`}
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                                title="Live Stream"
+                                title="YouTube Stream"
                                 onLoad={() => {
-                                    // Increased delay to 4s to ensure YT UI is fully hidden
                                     setTimeout(() => setLoading(false), 4000);
                                 }}
                             />
                         ) : (
-                            <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                                <div className="text-white/20 font-mono text-[10px] tracking-[0.2em] mb-2 uppercase">SIGNAL NOT DETECTED</div>
+                            </div>
                         )}
                     </div>
 
@@ -386,13 +394,26 @@ const Streaming = () => {
                     {/* Bottom Right Mask: Covers YouTube Logo / "Watch on YouTube" */}
                     <div className="absolute bottom-0 right-0 w-48 h-16 bg-gradient-to-t from-black to-transparent z-10 pointer-events-auto" />
 
-                    {/* Interaction Shield - Blocks YT but below our controls UI */}
-                    <div className="absolute inset-0 z-20 bg-transparent cursor-default"
-                        onContextMenu={(e) => e.preventDefault()}
-                    />
-
                     {/* CUSTOM OVERLAY UI - Highest Z-index */}
-                    <div className="absolute inset-0 pointer-events-none z-30 opacity-0 group-hover:opacity-100 transition-all duration-500">
+                    <div
+                        className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 group-hover:opacity-100 pointer-events-none'}`}
+                        onClick={(e) => {
+                            // On touch, toggle controls. On desktop, stays group-hover.
+                            const now = Date.now();
+                            if (now - lastTap < 300) {
+                                // Double tap for fullscreen maybe? For now just toggle
+                                setShowControls(!showControls);
+                            } else {
+                                setShowControls(!showControls);
+                            }
+                            setLastTap(now);
+                        }}
+                    >
+                        {/* Interaction Shield - Blocks YT but below our controls UI */}
+                        <div className="absolute inset-0 z-20 bg-transparent cursor-default pointer-events-none"
+                            onContextMenu={(e) => e.preventDefault()}
+                        />
+
                         <div className="absolute top-4 left-4 pointer-events-auto">
                             <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40 shadow-lg">
                                 <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
@@ -400,12 +421,15 @@ const Streaming = () => {
                             </div>
                         </div>
 
-                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end pointer-events-auto">
+                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end pointer-events-auto gap-4 flex-wrap">
                             <div className="flex flex-col gap-2">
                                 <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
                                 <div className="flex items-center gap-3">
                                     <button
-                                        onClick={() => window.location.reload()}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.location.reload();
+                                        }}
                                         className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue group/play"
                                         title="Play/Refresh Stream"
                                     >
@@ -418,11 +442,13 @@ const Streaming = () => {
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-6 text-white bg-black/40 backdrop-blur-md p-4 rounded-2xl border border-white/10 relative">
-                                {/* Quality Selector */}
+                            <div className="flex items-center gap-3 sm:gap-6 text-white bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 relative">
                                 <div className="relative">
                                     <button
-                                        onClick={() => setShowQualityMenu(!showQualityMenu)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowQualityMenu(!showQualityMenu);
+                                        }}
                                         className="flex flex-col items-center group cursor-pointer"
                                     >
                                         <Settings size={20} className={`transition-colors ${showQualityMenu ? 'text-neon-blue' : 'text-gray-300 group-hover:text-white'}`} />
@@ -439,11 +465,12 @@ const Streaming = () => {
                                             ].map((q) => (
                                                 <button
                                                     key={q.value}
-                                                    onClick={() => {
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
                                                         setQuality(q.value);
                                                         setShowQualityMenu(false);
                                                         setLoading(true);
-                                                        setTimeout(() => setLoading(false), 2000);
+                                                        setTimeout(() => setLoading(false), 4000);
                                                     }}
                                                     className={`w-full text-left px-4 py-2 rounded-lg text-xs font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                                 >
@@ -454,32 +481,49 @@ const Streaming = () => {
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-3 group/vol">
+                                <div className="hidden sm:flex items-center gap-3 group/vol">
                                     <Volume2
                                         size={20}
                                         className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`}
-                                        onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setVolume(volume === 0 ? 0.8 : 0);
+                                        }}
                                     />
                                     <input
                                         type="range"
                                         min="0" max="1" step="0.1"
                                         value={volume}
                                         onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                        onMouseDown={(e) => e.stopPropagation()}
                                         className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
                                     />
                                 </div>
+
                                 <button
-                                    className="p-2 hover:bg-white/10 rounded-lg transition-colors group/fs"
-                                    onClick={() => {
+                                    className="p-2 bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/20 rounded-lg transition-all group/fs"
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
                                         const playerEl = document.getElementById('main-player-container');
                                         if (document.fullscreenElement) {
                                             document.exitFullscreen();
+                                            if (screen.orientation && screen.orientation.unlock) {
+                                                screen.orientation.unlock();
+                                            }
                                         } else if (playerEl) {
-                                            playerEl.requestFullscreen();
+                                            try {
+                                                await playerEl.requestFullscreen();
+                                                // Lock to landscape on mobile
+                                                if (screen.orientation && screen.orientation.lock) {
+                                                    await screen.orientation.lock('landscape').catch(err => console.log('Orientation lock rejected:', err));
+                                                }
+                                            } catch (err) {
+                                                console.error('Fullscreen failed:', err);
+                                            }
                                         }
                                     }}
                                 >
-                                    <Maximize size={20} className="group-hover:scale-110 transition-transform" />
+                                    <Maximize size={24} className="text-neon-blue group-hover:scale-110 transition-transform" />
                                 </button>
                             </div>
                         </div>
