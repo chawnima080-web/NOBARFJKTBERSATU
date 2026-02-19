@@ -14,7 +14,9 @@ const Admin = () => {
     });
     const [selectedLineup, setSelectedLineup] = useState([1, 5, 20]);
     const [tickets, setTickets] = useState(['TRIAL-JKT48']);
+    const [publicTickets, setPublicTickets] = useState([]);
     const [newTicket, setNewTicket] = useState('');
+    const [newPublicTicket, setNewPublicTicket] = useState('');
     const [saveStatus, setSaveStatus] = useState('');
 
     const [isConnected, setIsConnected] = useState(false);
@@ -38,6 +40,7 @@ const Admin = () => {
                 if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
                 if (data.lineup) setSelectedLineup(Array.isArray(data.lineup) ? data.lineup : []);
                 if (data.tickets) setTickets(Array.isArray(data.tickets) ? data.tickets : []);
+                if (data.publicTickets) setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
             }
             setLoading(false);
             clearTimeout(loadingTimeout);
@@ -65,7 +68,8 @@ const Admin = () => {
             await set(ref(db, '/'), {
                 settings,
                 lineup: selectedLineup,
-                tickets
+                tickets,
+                publicTickets
             });
             clearTimeout(saveTimeout);
             setSaveStatus('Berhasil disimpan ke Cloud!');
@@ -96,6 +100,28 @@ const Admin = () => {
 
     const removeTicket = (t) => {
         setTickets(tickets.filter(ticket => ticket !== t));
+    };
+
+    const addPublicTicket = () => {
+        if (newPublicTicket && !publicTickets.includes(newPublicTicket)) {
+            setPublicTickets([...publicTickets, newPublicTicket]);
+            setNewPublicTicket('');
+        }
+    };
+
+    const removePublicTicket = (t) => {
+        setPublicTickets(publicTickets.filter(ticket => ticket !== t));
+    };
+
+    const generateBulkTickets = (count) => {
+        const newBatch = [];
+        for (let i = 0; i < count; i++) {
+            const code = 'JKT48-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            if (!tickets.includes(code) && !newBatch.includes(code)) {
+                newBatch.push(code);
+            }
+        }
+        setTickets([...tickets, ...newBatch]);
     };
 
     if (loading) {
@@ -208,10 +234,65 @@ const Admin = () => {
 
                     {/* --- TICKET MANAGEMENT --- */}
                     <div className="space-y-8">
-                        <div className="glass-panel p-6 border-white/5 h-full">
-                            <h2 className="text-xl font-display font-bold mb-6 flex items-center gap-2 text-neon-green">
-                                <Ticket size={20} /> MANAJEMEN TIKET
+                        {/* --- PUBLIC / SHARED TICKETS --- */}
+                        <div className="glass-panel p-6 border-white/5">
+                            <h2 className="text-xl font-display font-bold mb-6 flex items-center gap-2 text-neon-blue">
+                                <Users size={20} /> TIKET PUBLIK (NO-KICK)
                             </h2>
+                            <p className="text-[10px] text-gray-400 mb-4 uppercase tracking-wider">Tiket ini bisa dipakai 1000+ orang sekaligus tanpa conflict.</p>
+
+                            <div className="flex gap-2 mb-6">
+                                <input
+                                    type="text"
+                                    value={newPublicTicket}
+                                    onChange={(e) => setNewPublicTicket(e.target.value.toUpperCase())}
+                                    placeholder="KODE PUBLIK..."
+                                    className="flex-grow bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none font-mono"
+                                />
+                                <button
+                                    onClick={addPublicTicket}
+                                    className="bg-neon-blue/20 text-neon-blue p-3 rounded-lg hover:bg-neon-blue hover:text-white transition-all"
+                                >
+                                    <Plus size={24} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                                {publicTickets.map(ticket => (
+                                    <div key={ticket} className="flex items-center justify-between p-3 bg-neon-blue/5 border border-neon-blue/20 rounded-lg group">
+                                        <span className="font-mono text-sm tracking-widest text-neon-blue">{ticket}</span>
+                                        <button
+                                            onClick={() => removePublicTicket(ticket)}
+                                            className="text-gray-600 hover:text-neon-pink opacity-0 group-hover:opacity-100 transition-all"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* --- REGULAR TICKETS --- */}
+                        <div className="glass-panel p-6 border-white/5">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-display font-bold flex items-center gap-2 text-neon-green">
+                                    <Ticket size={20} /> TIKET REGULER
+                                </h2>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => generateBulkTickets(10)}
+                                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1 rounded-md transition-all"
+                                    >
+                                        +10 AUTO
+                                    </button>
+                                    <button
+                                        onClick={() => generateBulkTickets(50)}
+                                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1 rounded-md transition-all"
+                                    >
+                                        +50 AUTO
+                                    </button>
+                                </div>
+                            </div>
 
                             <div className="flex gap-2 mb-6">
                                 <input
@@ -229,7 +310,7 @@ const Admin = () => {
                                 </button>
                             </div>
 
-                            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                                 {tickets.map(ticket => (
                                     <div key={ticket} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-lg group hover:border-white/20 transition-all">
                                         <span className="font-mono text-sm tracking-widest">{ticket}</span>
@@ -244,10 +325,12 @@ const Admin = () => {
                             </div>
 
                             <button
-                                onClick={() => setTickets([])}
+                                onClick={() => {
+                                    if (window.confirm('Hapus semua tiket reguler?')) setTickets([]);
+                                }}
                                 className="w-full mt-6 border border-neon-pink/30 text-neon-pink p-3 rounded-lg text-xs font-mono hover:bg-neon-pink hover:text-white transition-all flex items-center justify-center gap-2"
                             >
-                                <RefreshCw size={14} /> RESET SEMUA TIKET
+                                <RefreshCw size={14} /> RESET SEMUA REGULER
                             </button>
                         </div>
                     </div>

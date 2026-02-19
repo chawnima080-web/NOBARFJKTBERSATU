@@ -7,6 +7,7 @@ import { ref, onValue, set, onDisconnect, serverTimestamp } from 'firebase/datab
 
 const Streaming = () => {
     const [currentTickets, setCurrentTickets] = useState(['TRIAL-JKT48']);
+    const [publicTickets, setPublicTickets] = useState([]);
 
     useEffect(() => {
         const dbRef = ref(db, '/');
@@ -14,6 +15,7 @@ const Streaming = () => {
             const data = snapshot.val();
             if (data) {
                 setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
+                setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
                 if (data.settings && data.settings.streamUrl) {
                     // Only trigger loading if the URL is actually different
                     setUrl(prev => {
@@ -54,7 +56,9 @@ const Streaming = () => {
         const storedTicket = localStorage.getItem('active_jkt_ticket');
         const targetTicket = ticketFromUrl || storedTicket;
 
-        if (targetTicket && currentTickets.includes(targetTicket)) {
+        const allValidTickets = [...currentTickets, ...publicTickets];
+
+        if (targetTicket && allValidTickets.includes(targetTicket)) {
             handleAuthorization(targetTicket);
         } else if (isAuthorized) {
             // Revoke access if the ticket is no longer valid or list is empty
@@ -67,6 +71,9 @@ const Streaming = () => {
     // Global Heartbeat Logic: Prevent Multi-Device via Firebase
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict) return;
+
+        // SKIP Conflict Check for PUBLIC tickets
+        if (publicTickets.includes(activeTicket)) return;
 
         const sessionRef = ref(db, `sessions/${activeTicket}`);
         let heartbeatInterval;
@@ -127,7 +134,8 @@ const Streaming = () => {
 
     const handleTicketSubmit = (e) => {
         e.preventDefault();
-        if (currentTickets.includes(ticketInput)) {
+        const allValidTickets = [...currentTickets, ...publicTickets];
+        if (allValidTickets.includes(ticketInput)) {
             handleAuthorization(ticketInput);
         } else {
             setAuthError('Ticket ID tidak valid atau sudah kedaluwarsa.');
