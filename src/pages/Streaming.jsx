@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTriangle, RotateCcw } from 'lucide-react';
-// ReactPlayer removed for native Iframe stability
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
 import { ref, onValue, set, onDisconnect, serverTimestamp, push, limitToLast, query } from 'firebase/database';
@@ -16,7 +15,6 @@ const Streaming = () => {
             if (data) {
                 setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
-                // Always sync settings structure
                 if (data.settings) {
                     const newUrl = data.settings.streamUrl || '';
                     setUrl(prev => {
@@ -28,13 +26,11 @@ const Streaming = () => {
                         return prev;
                     });
                 } else {
-                    // Reset if settings missing
                     setUrl('');
                 }
             }
         });
 
-        // --- Global Chat Sync ---
         const chatRef = query(ref(db, 'chats'), limitToLast(50));
         const unsubscribeChat = onValue(chatRef, (snapshot) => {
             const data = snapshot.val();
@@ -62,7 +58,6 @@ const Streaming = () => {
     });
     const [tempName, setTempName] = useState('');
     const [sessionId] = useState(() => {
-        // Persist session ID in the tab's storage so refresh doesn't count as a new device
         let id = sessionStorage.getItem('jkt_session_id');
         if (!id) {
             id = nanoid();
@@ -72,45 +67,49 @@ const Streaming = () => {
     });
     const [sessionConflict, setSessionConflict] = useState(false);
 
-    // Check for ticket in URL or LocalStorage on load + Cleanup Expired Names
+    // 1. Authorization Logic: Verify ticket on load or list change
     useEffect(() => {
         const allValidTickets = [...currentTickets, ...publicTickets];
+        if (allValidTickets.length === 0) return;
 
-        // 1. Authorization Logic
         const urlParams = new URLSearchParams(window.location.search);
         const ticketFromUrl = urlParams.get('ticket');
         const storedTicket = localStorage.getItem('active_jkt_ticket');
         const targetTicket = ticketFromUrl || storedTicket;
 
         if (targetTicket && allValidTickets.includes(targetTicket)) {
-            if (!sessionConflict && (activeTicket !== targetTicket || !isAuthorized)) {
+            // Only re-authorize if we aren't authorized yet OR if we switched tickets
+            if (!sessionConflict && (!isAuthorized || activeTicket !== targetTicket)) {
                 handleAuthorization(targetTicket);
             }
         } else if (isAuthorized) {
             setIsAuthorized(false);
             setActiveTicket(null);
+            setUserName('');
             localStorage.removeItem('active_jkt_ticket');
         }
+    }, [currentTickets, publicTickets, isAuthorized, sessionConflict, activeTicket]);
 
-        // 2. Automatic Name Cleanup (User Request)
+    // 2. Automatic Name Cleanup: Remove stored names for expired/removed tickets
+    useEffect(() => {
+        const allValidTickets = [...currentTickets, ...publicTickets];
         if (allValidTickets.length > 0) {
             Object.keys(localStorage).forEach(key => {
                 if (key.startsWith('jkt_name_')) {
                     const ticketId = key.replace('jkt_name_', '');
                     if (!allValidTickets.includes(ticketId)) {
                         localStorage.removeItem(key);
-                        console.log(`Cleaned up name for expired ticket: ${ticketId}`);
+                        console.log(`Cleaned up name for removed ticket: ${ticketId}`);
                     }
                 }
             });
         }
-    }, [currentTickets, publicTickets, isAuthorized, sessionConflict]);
+    }, [currentTickets, publicTickets]);
 
-    // Global Heartbeat & Presence Logic
+    // 3. Global Heartbeat & Presence Logic
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict) return;
 
-        // 1. Presence & Global Counter (For all authorized users)
         const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
         set(presenceRef, true);
         onDisconnect(presenceRef).remove();
@@ -121,7 +120,6 @@ const Streaming = () => {
             setViewerCount(data ? Object.keys(data).length : 0);
         });
 
-        // 2. Heartbeat Logic (Skip for Public Tickets)
         if (publicTickets.includes(activeTicket)) {
             return () => unsubscribePresence();
         }
@@ -132,7 +130,6 @@ const Streaming = () => {
         const unsubscribeSession = onValue(sessionRef, (snapshot) => {
             const data = snapshot.val();
             if (!data) return;
-
             if (data.id !== sessionId) {
                 const now = Date.now();
                 const lastSeen = data.timestamp || 0;
@@ -171,13 +168,13 @@ const Streaming = () => {
 
         // --- NAME SYNC LOGIC ---
         const savedName = localStorage.getItem(`jkt_name_${ticket}`);
-        setUserName(savedName || '');
+        // Only override if switching tickets or still empty
+        if (activeTicket !== ticket || !userName) {
+            setUserName(savedName || '');
+        }
         setTempName('');
 
-        // Persist to LocalStorage
         localStorage.setItem('active_jkt_ticket', ticket);
-
-        // Save to URL so refresh doesn't lose access
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?ticket=' + ticket;
         window.history.pushState({ path: newUrl }, '', newUrl);
     };
@@ -214,7 +211,6 @@ const Streaming = () => {
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
 
-    // Auto-hide controls timer
     useEffect(() => {
         if (showControls) {
             const timer = setTimeout(() => setShowControls(false), 5000);
@@ -222,23 +218,20 @@ const Streaming = () => {
         }
     }, [showControls]);
 
-    // Functional Volume Control for YT Iframe
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
         if (iframe) {
             const message = JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
-                args: [volume * 100] // YT API uses 0-100
+                args: [volume * 100]
             });
             iframe.contentWindow.postMessage(message, '*');
         }
-    }, [volume, url]); // Re-apply on URL change too
+    }, [volume, url]);
 
-    // Extraction logic for YouTube Video ID
     const getVideoId = (url) => {
         if (!url) return null;
-        // Updated regex to support /live/ format
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|live\/)([^#\&\?]*).*/;
         const match = url.match(regExp);
         return (match && match[2].length === 11) ? match[2] : null;
@@ -269,7 +262,6 @@ const Streaming = () => {
         }
     };
 
-    // --- Conflict UI ---
     if (sessionConflict) {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-center text-white">
@@ -284,30 +276,19 @@ const Streaming = () => {
                     </p>
                     <button
                         onClick={async () => {
-                            // Force overwrite Firebase session IMMEDIATELY
                             const sessionRef = ref(db, `sessions/${activeTicket}`);
-                            await set(sessionRef, {
-                                id: sessionId,
-                                timestamp: Date.now()
-                            });
-                            // Small delay to let Firebase sync
-                            setTimeout(() => {
-                                window.location.reload();
-                            }, 500);
+                            await set(sessionRef, { id: sessionId, timestamp: Date.now() });
+                            setTimeout(() => window.location.reload(), 500);
                         }}
                         className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]"
                     >
                         MASUK PAKSA (AMBIL ALIH)
                     </button>
-                    <p className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest">
-                        Keamanan Akun Terdeteksi
-                    </p>
                 </div>
             </div>
         );
     }
 
-    // --- Ticket Gate UI ---
     if (!isAuthorized) {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-white">
@@ -317,7 +298,6 @@ const Streaming = () => {
                     </div>
                     <h2 className="text-white text-2xl font-display mb-2">ACCESS PROTECTED</h2>
                     <p className="text-gray-400 text-sm mb-8">Masukkan Ticket ID Anda untuk masuk ke ruang nobar.</p>
-
                     <form onSubmit={handleTicketSubmit} className="space-y-4">
                         <div className="relative">
                             <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -334,16 +314,11 @@ const Streaming = () => {
                             MASUK SEKARANG
                         </button>
                     </form>
-
-                    <p className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest">
-                        Satu tiket hanya bisa digunakan untuk 1 perangkat.
-                    </p>
                 </div>
             </div>
         );
     }
 
-    // --- Name Gate UI (Step 2) ---
     if (!userName) {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-white">
@@ -353,7 +328,6 @@ const Streaming = () => {
                     </div>
                     <h2 className="text-white text-2xl font-display mb-2">SIAPA NAMA ANDA?</h2>
                     <p className="text-gray-400 text-sm mb-8">Nama ini akan muncul saat Anda mengirim komentar di live chat.</p>
-
                     <form onSubmit={handleNameSubmit} className="space-y-4">
                         <div className="relative">
                             <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -371,11 +345,9 @@ const Streaming = () => {
                             MULAI MENONTON
                         </button>
                     </form>
-
                     <button
                         onClick={() => {
                             localStorage.removeItem('active_jkt_ticket');
-                            localStorage.removeItem('jkt_user_name');
                             window.location.reload();
                         }}
                         className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest hover:text-white transition-colors"
@@ -389,10 +361,8 @@ const Streaming = () => {
 
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
-            {/* Video Player Area */}
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
                 <div className="flex-grow relative h-full w-full">
-                    {/* GHOST PLAYER - Supports YouTube and Generic Iframe */}
                     <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
                         {videoId ? (
                             <iframe
@@ -402,9 +372,7 @@ const Streaming = () => {
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
-                                onLoad={() => {
-                                    setTimeout(() => setLoading(false), 4000);
-                                }}
+                                onLoad={() => setTimeout(() => setLoading(false), 4000)}
                             />
                         ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -413,7 +381,6 @@ const Streaming = () => {
                         )}
                     </div>
 
-                    {/* BLACK DELAY OVERLAY - Hides YT UI during reload */}
                     {loading && (
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4 transition-all duration-500">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
@@ -421,23 +388,14 @@ const Streaming = () => {
                         </div>
                     )}
 
-                    {/* PROFESSIONAL GHOST MASKING */}
-                    {/* Top Mask: Covers Title & Channel Info with slight gradient for natural feel */}
                     <div className="absolute top-0 left-0 w-full h-16 bg-gradient-to-b from-black via-black/90 to-transparent z-10 pointer-events-auto" />
-
-                    {/* Bottom Right Mask: Covers YouTube Logo / "Watch on YouTube" */}
                     <div className="absolute bottom-0 right-0 w-48 h-16 bg-gradient-to-t from-black to-transparent z-10 pointer-events-auto" />
 
-                    {/* CUSTOM OVERLAY UI - Highest Z-index */}
                     <div
                         className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 md:group-hover:opacity-100'}`}
                         onClick={() => setShowControls(!showControls)}
                     >
-                        {/* Interaction Shield - Blocks YT but below our controls UI */}
-                        <div className="absolute inset-0 z-20 bg-transparent cursor-default pointer-events-none"
-                            onContextMenu={(e) => e.preventDefault()}
-                        />
-
+                        <div className="absolute inset-0 z-20 bg-transparent cursor-default pointer-events-none" onContextMenu={(e) => e.preventDefault()} />
                         <div className="absolute top-4 left-4 pointer-events-auto">
                             <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40 shadow-lg">
                                 <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
@@ -450,12 +408,8 @@ const Streaming = () => {
                                 <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
                                 <div className="flex items-center gap-3">
                                     <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            window.location.reload();
-                                        }}
+                                        onClick={(e) => { e.stopPropagation(); window.location.reload(); }}
                                         className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue group/play"
-                                        title="Reset Stream"
                                     >
                                         <RotateCcw size={16} className="group-hover/play:rotate-[-45deg] transition-transform" />
                                     </button>
@@ -468,17 +422,10 @@ const Streaming = () => {
 
                             <div className="flex items-center gap-3 sm:gap-6 text-white bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 relative">
                                 <div className="relative">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setShowQualityMenu(!showQualityMenu);
-                                        }}
-                                        className="flex flex-col items-center group cursor-pointer"
-                                    >
+                                    <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center group cursor-pointer">
                                         <Settings size={20} className={`transition-colors ${showQualityMenu ? 'text-neon-blue' : 'text-gray-300 group-hover:text-white'}`} />
                                         <span className="text-[8px] mt-1 font-mono uppercase tracking-tighter">{quality.replace('hd', '')}P</span>
                                     </button>
-
                                     {showQualityMenu && (
                                         <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[120px] shadow-2xl backdrop-blur-xl z-50">
                                             {[
@@ -504,26 +451,10 @@ const Streaming = () => {
                                         </div>
                                     )}
                                 </div>
-
                                 <div className="hidden sm:flex items-center gap-3 group/vol">
-                                    <Volume2
-                                        size={20}
-                                        className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setVolume(volume === 0 ? 0.8 : 0);
-                                        }}
-                                    />
-                                    <input
-                                        type="range"
-                                        min="0" max="1" step="0.1"
-                                        value={volume}
-                                        onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
-                                    />
+                                    <Volume2 size={20} className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`} onClick={(e) => { e.stopPropagation(); setVolume(volume === 0 ? 0.8 : 0); }} />
+                                    <input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} onMouseDown={(e) => e.stopPropagation()} className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue" />
                                 </div>
-
                                 <button
                                     className="p-2 bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/20 rounded-lg transition-all group/fs"
                                     onClick={async (e) => {
@@ -531,19 +462,9 @@ const Streaming = () => {
                                         const playerEl = document.getElementById('main-player-container');
                                         if (document.fullscreenElement) {
                                             document.exitFullscreen();
-                                            if (screen.orientation && screen.orientation.unlock) {
-                                                screen.orientation.unlock();
-                                            }
                                         } else if (playerEl) {
-                                            try {
-                                                await playerEl.requestFullscreen();
-                                                // Lock to landscape on mobile
-                                                if (screen.orientation && screen.orientation.lock) {
-                                                    await screen.orientation.lock('landscape').catch(err => console.log('Orientation lock rejected:', err));
-                                                }
-                                            } catch (err) {
-                                                console.error('Fullscreen failed:', err);
-                                            }
+                                            await playerEl.requestFullscreen();
+                                            if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape').catch(() => { });
                                         }
                                     }}
                                 >
@@ -552,23 +473,16 @@ const Streaming = () => {
                             </div>
                         </div>
                     </div>
-
                 </div>
-
-                {/* Bottom Signal Meta */}
                 <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                            <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span>
-                        </div>
+                        <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-red-500 rounded-full" /><span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span></div>
                         <div className="h-3 w-px bg-white/10" />
                         <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
                     </div>
                 </div>
             </div>
 
-            {/* Chat Area */}
             <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
                 <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
                     <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
@@ -576,7 +490,6 @@ const Streaming = () => {
                         <Users size={12} /> {viewerCount.toLocaleString()}
                     </div>
                 </div>
-
                 <div className="flex-grow overflow-y-auto p-4 space-y-4">
                     {messages.map((msg, idx) => (
                         <div key={idx} className="text-sm">
@@ -585,19 +498,10 @@ const Streaming = () => {
                         </div>
                     ))}
                 </div>
-
                 <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
                     <div className="relative">
-                        <input
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue"
-                            placeholder="Say something..."
-                        />
-                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white">
-                            <Send size={16} />
-                        </button>
+                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue" placeholder="Say something..." />
+                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"><Send size={16} /></button>
                     </div>
                 </form>
             </div>
