@@ -4,7 +4,11 @@ import { motion } from 'framer-motion';
 const CursorAnimation = () => {
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
+    const [isTouch, setIsTouch] = useState(false);
+
     useEffect(() => {
+        setIsTouch('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
         const updateMousePosition = (e) => {
             setMousePosition({ x: e.clientX, y: e.clientY });
         };
@@ -15,6 +19,8 @@ const CursorAnimation = () => {
             window.removeEventListener('mousemove', updateMousePosition);
         };
     }, []);
+
+    if (isTouch) return null;
 
     return (
         <div className="pointer-events-none fixed top-0 left-0 w-full h-full z-50 hidden md:block">
