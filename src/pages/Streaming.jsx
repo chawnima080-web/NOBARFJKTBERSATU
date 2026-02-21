@@ -57,7 +57,8 @@ const Streaming = () => {
         return localStorage.getItem('active_jkt_ticket') || null;
     });
     const [userName, setUserName] = useState(() => {
-        return localStorage.getItem('jkt_user_name') || '';
+        const ticket = localStorage.getItem('active_jkt_ticket');
+        return ticket ? localStorage.getItem(`jkt_name_${ticket}`) || '' : '';
     });
     const [tempName, setTempName] = useState('');
     const [sessionId] = useState(() => {
@@ -71,102 +72,96 @@ const Streaming = () => {
     });
     const [sessionConflict, setSessionConflict] = useState(false);
 
-    // Check for ticket in URL or LocalStorage on load
+    // Check for ticket in URL or LocalStorage on load + Cleanup Expired Names
     useEffect(() => {
+        const allValidTickets = [...currentTickets, ...publicTickets];
+
+        // 1. Authorization Logic
         const urlParams = new URLSearchParams(window.location.search);
         const ticketFromUrl = urlParams.get('ticket');
         const storedTicket = localStorage.getItem('active_jkt_ticket');
         const targetTicket = ticketFromUrl || storedTicket;
 
-        const allValidTickets = [...currentTickets, ...publicTickets];
-
         if (targetTicket && allValidTickets.includes(targetTicket)) {
-            // CRITICAL: Don't re-authorize if we are currently in a conflict state
             if (!sessionConflict && (activeTicket !== targetTicket || !isAuthorized)) {
                 handleAuthorization(targetTicket);
             }
         } else if (isAuthorized) {
-            // Revoke access if the ticket is no longer valid or list is empty
             setIsAuthorized(false);
             setActiveTicket(null);
             localStorage.removeItem('active_jkt_ticket');
         }
-    }, [currentTickets, isAuthorized, sessionConflict]);
 
-    // Global Heartbeat Logic: Prevent Multi-Device via Firebase
-    useEffect(() => {
-        if (!isAuthorized || !activeTicket || sessionConflict) return;
-
-        // SKIP Conflict Check for PUBLIC tickets
-        if (publicTickets.includes(activeTicket)) return;
-
-        const sessionRef = ref(db, `sessions/${activeTicket}`);
-        const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
-        let heartbeatInterval;
-
-        // Presence Logic: Mark as online and remove on disconnect
-        set(presenceRef, true);
-        onDisconnect(presenceRef).remove();
-
-        // Monitor Global Presence
-        const globalPresenceRef = ref(db, 'presence');
-        const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                setViewerCount(Object.keys(data).length);
-            } else {
-                setViewerCount(0);
-            }
-        });
-
-        const checkSession = () => {
-            // 1. Listen for changes in ownership
-            const unsubscribe = onValue(sessionRef, (snapshot) => {
-                const data = snapshot.val();
-                if (!data) return;
-
-                // If someone else took over AND they are still active (within 40s grace)
-                if (data.id !== sessionId) {
-                    const now = Date.now();
-                    const lastSeen = data.timestamp || 0;
-
-                    if (now - lastSeen < 40000) {
-                        setSessionConflict(true);
-                        // STOP: Don't call setIsAuthorized(false) here, 
-                        // let sessionConflict state handle the UI blocker independently.
-                        if (heartbeatInterval) clearInterval(heartbeatInterval);
-                        return;
+        // 2. Automatic Name Cleanup (User Request)
+        if (allValidTickets.length > 0) {
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('jkt_name_')) {
+                    const ticketId = key.replace('jkt_name_', '');
+                    if (!allValidTickets.includes(ticketId)) {
+                        localStorage.removeItem(key);
+                        console.log(`Cleaned up name for expired ticket: ${ticketId}`);
                     }
                 }
             });
+        }
+    }, [currentTickets, publicTickets, isAuthorized, sessionConflict]);
 
-            // 2. Setup Periodic Heartbeat
-            const updateHeartbeat = async () => {
-                // Safety: Check if we are still active before writing
-                if (sessionConflict) return;
+    // Global Heartbeat & Presence Logic
+    useEffect(() => {
+        if (!isAuthorized || !activeTicket || sessionConflict) return;
 
-                try {
-                    await set(sessionRef, {
-                        id: sessionId,
-                        timestamp: Date.now()
-                    });
-                } catch (e) {
-                    console.error("Heartbeat update failed:", e);
+        // 1. Presence & Global Counter (For all authorized users)
+        const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
+        set(presenceRef, true);
+        onDisconnect(presenceRef).remove();
+
+        const globalPresenceRef = ref(db, 'presence');
+        const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
+            const data = snapshot.val();
+            setViewerCount(data ? Object.keys(data).length : 0);
+        });
+
+        // 2. Heartbeat Logic (Skip for Public Tickets)
+        if (publicTickets.includes(activeTicket)) {
+            return () => unsubscribePresence();
+        }
+
+        const sessionRef = ref(db, `sessions/${activeTicket}`);
+        let heartbeatInterval;
+
+        const unsubscribeSession = onValue(sessionRef, (snapshot) => {
+            const data = snapshot.val();
+            if (!data) return;
+
+            if (data.id !== sessionId) {
+                const now = Date.now();
+                const lastSeen = data.timestamp || 0;
+                if (now - lastSeen < 40000) {
+                    setSessionConflict(true);
+                    if (heartbeatInterval) clearInterval(heartbeatInterval);
                 }
-            };
+            }
+        });
 
-            // Initial update and start interval
-            updateHeartbeat();
-            heartbeatInterval = setInterval(updateHeartbeat, 15000);
+        const updateHeartbeat = async () => {
+            if (sessionConflict) return;
+            try {
+                await set(sessionRef, { id: sessionId, timestamp: Date.now() });
+            } catch (e) {
+                console.error("Heartbeat update failed:", e);
+            }
+        };
 
-            // 3. Cleanup
-            onDisconnect(sessionRef).remove();
+        updateHeartbeat();
+        heartbeatInterval = setInterval(updateHeartbeat, 15000);
+        onDisconnect(sessionRef).remove();
 
-            return () => {
-                unsubscribe();
-                if (heartbeatInterval) clearInterval(heartbeatInterval);
-            };
-        }, [isAuthorized, activeTicket, sessionId, sessionConflict]);
+        return () => {
+            unsubscribePresence();
+            unsubscribeSession();
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+        };
+    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -174,11 +169,10 @@ const Streaming = () => {
         setAuthError('');
         setSessionConflict(false);
 
-        // --- PUBLIC TICKET LOGIC: Always re-set name ---
-        if (publicTickets.includes(ticket)) {
-            setUserName('');
-            localStorage.removeItem('jkt_user_name');
-        }
+        // --- NAME SYNC LOGIC ---
+        const savedName = localStorage.getItem(`jkt_name_${ticket}`);
+        setUserName(savedName || '');
+        setTempName('');
 
         // Persist to LocalStorage
         localStorage.setItem('active_jkt_ticket', ticket);
@@ -201,11 +195,13 @@ const Streaming = () => {
     const handleNameSubmit = (e) => {
         e.preventDefault();
         const trimmedName = tempName.trim();
-        if (trimmedName.length >= 3) {
+        if (trimmedName.length >= 2) {
             setUserName(trimmedName);
-            localStorage.setItem('jkt_user_name', trimmedName);
+            if (activeTicket) {
+                localStorage.setItem(`jkt_name_${activeTicket}`, trimmedName);
+            }
         } else {
-            setAuthError('Nama minimal 3 karakter.');
+            setAuthError('Nama minimal 2 karakter.');
         }
     };
 
