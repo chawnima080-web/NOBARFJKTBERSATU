@@ -7,14 +7,16 @@ import { ref, onValue, set, onDisconnect, serverTimestamp, push, limitToLast, qu
 
 const Streaming = () => {
     const navigate = useNavigate();
-    // 1. Core State with Safe Defaults
+    // 1. Core State
     const [currentTickets, setCurrentTickets] = useState([]);
     const [publicTickets, setPublicTickets] = useState([]);
     const [dataLoaded, setDataLoaded] = useState(false);
+    const [refreshKey, setRefreshKey] = useState(0); // For instant player refresh
+    const [settings, setSettings] = useState(null);
+    const [startTime, setStartTime] = useState(null);
 
     // 2. Global Sync Listener
     useEffect(() => {
-        // Granular Listeners
         const ticketsRef = ref(db, 'tickets');
         const unsubTickets = onValue(ticketsRef, (snap) => {
             const data = snap.val();
@@ -33,17 +35,19 @@ const Streaming = () => {
         const unsubSettings = onValue(settingsRef, (snap) => {
             const data = snap.val();
             if (data) {
+                setSettings(data);
+                const newStartTime = data.date ? new Date(data.date).getTime() : null;
+                setStartTime(newStartTime);
+
                 const newUrl = data.streamUrl || '';
                 setUrl(prev => {
                     if (prev !== newUrl) {
                         setLoading(true);
-                        setTimeout(() => setLoading(false), 4000);
+                        setTimeout(() => setLoading(false), 2000);
                         return newUrl;
                     }
                     return prev;
                 });
-            } else {
-                setUrl('');
             }
         });
 
@@ -86,10 +90,9 @@ const Streaming = () => {
     });
     const [sessionConflict, setSessionConflict] = useState(false);
 
-    // 3. Authorization Effect: Runs ONLY after data is loaded to prevent premature lockouts
+    // 3. Authorization Effect
     useEffect(() => {
         if (!dataLoaded) return;
-
         const allValidTickets = [...currentTickets, ...publicTickets];
         const urlParams = new URLSearchParams(window.location.search);
         const ticketFromUrl = urlParams.get('ticket');
@@ -97,12 +100,10 @@ const Streaming = () => {
         const targetTicket = ticketFromUrl || storedTicket;
 
         if (targetTicket && allValidTickets.includes(targetTicket)) {
-            // Only authorize if not already done OR if ticket changed
             if (!sessionConflict && (!isAuthorized || activeTicket !== targetTicket)) {
                 handleAuthorization(targetTicket);
             }
         } else if (isAuthorized) {
-            // Revoke access ONLY if we are sure the ticket is truly invalid
             setIsAuthorized(false);
             setActiveTicket(null);
             setUserName('');
@@ -110,7 +111,7 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, isAuthorized, sessionConflict, activeTicket, dataLoaded]);
 
-    // 4. Cleanup Effect: Runs ONLY after data is loaded to prevent deleting valid names during refresh race
+    // 4. Cleanup Effect
     useEffect(() => {
         if (!dataLoaded) return;
         const allValidTickets = [...currentTickets, ...publicTickets];
@@ -120,7 +121,6 @@ const Streaming = () => {
                     const ticketId = key.replace('jkt_name_', '');
                     if (!allValidTickets.includes(ticketId)) {
                         localStorage.removeItem(key);
-                        console.log(`Cleaned up name for removed ticket: ${ticketId}`);
                     }
                 }
             });
@@ -186,15 +186,11 @@ const Streaming = () => {
         setActiveTicket(ticket);
         setAuthError('');
         setSessionConflict(false);
-
-        // --- NAME SYNC LOGIC ---
         const savedName = localStorage.getItem(`jkt_name_${ticket}`);
-        // Only override if switching tickets or actually empty
         if (activeTicket !== ticket || !userName) {
             setUserName(savedName || '');
         }
         setTempName('');
-
         localStorage.setItem('active_jkt_ticket', ticket);
         navigate(`/streaming?ticket=${ticket}`, { replace: true });
     };
@@ -233,6 +229,7 @@ const Streaming = () => {
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
     const [input, setInput] = useState('');
+    const [isPlayerReady, setIsPlayerReady] = useState(false);
 
     useEffect(() => {
         if (showControls) {
@@ -241,9 +238,10 @@ const Streaming = () => {
         }
     }, [showControls]);
 
+    // Handle Volume PostMessage
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
-        if (iframe) {
+        if (iframe && isPlayerReady) {
             const message = JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
@@ -251,7 +249,7 @@ const Streaming = () => {
             });
             iframe.contentWindow.postMessage(message, '*');
         }
-    }, [volume, url]);
+    }, [volume, url, isPlayerReady, refreshKey]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -261,6 +259,22 @@ const Streaming = () => {
     };
 
     const videoId = getVideoId(url?.trim());
+
+    // --- REAL-TIME SYNC LOGIC ---
+    const calculateTimeOffset = () => {
+        if (!startTime) return 0;
+        const now = Date.now();
+        const diff = Math.floor((now - startTime) / 1000);
+        return diff > 0 ? diff : 0;
+    };
+
+    const handleRefresh = (e) => {
+        if (e) e.stopPropagation();
+        setLoading(true);
+        setIsPlayerReady(false);
+        setRefreshKey(prev => prev + 1);
+        setTimeout(() => setLoading(false), 1500);
+    };
 
     const handleSend = async (e) => {
         e.preventDefault();
@@ -354,6 +368,8 @@ const Streaming = () => {
         );
     }
 
+    const timeOffset = calculateTimeOffset();
+
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden">
@@ -362,12 +378,15 @@ const Streaming = () => {
                         {videoId ? (
                             <iframe
                                 id="yt-player-iframe"
-                                key={`${videoId}-${quality}`}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}`}
+                                key={`${videoId}-${quality}-${refreshKey}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
-                                onLoad={() => setTimeout(() => setLoading(false), 4000)}
+                                onLoad={() => {
+                                    setIsPlayerReady(true);
+                                    setTimeout(() => setLoading(false), 1500);
+                                }}
                             />
                         ) : (
                             <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
@@ -377,6 +396,18 @@ const Streaming = () => {
                     {loading && (
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
+                            <div className="text-neon-blue font-mono text-[10px] animate-pulse">CONNECTING TO SIGNAL...</div>
+                        </div>
+                    )}
+
+                    {!isPlayerReady && !loading && (
+                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                            <button
+                                onClick={() => handleRefresh()}
+                                className="bg-neon-blue text-white px-8 py-4 rounded-full font-bold flex items-center gap-4 hover:scale-105 transition-all shadow-[0_0_30px_rgba(0,183,255,0.4)]"
+                            >
+                                <Play size={24} fill="currentColor" /> START WATCHING
+                            </button>
                         </div>
                     )}
 
@@ -384,18 +415,19 @@ const Streaming = () => {
                         className={`absolute inset-0 z-30 transition-all duration-500 ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 md:group-hover:opacity-100'}`}
                         onClick={() => setShowControls(!showControls)}
                     >
+                        {/* Status Signal */}
                         <div className="absolute top-4 left-4">
                             <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40">
-                                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
-                                SIGNAL: LIVE
+                                <span className={`w-1.5 h-1.5 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)] ${videoId ? 'bg-red-500' : 'bg-gray-500'}`}></span>
+                                SIGNAL: {videoId ? 'LIVE' : 'OFFLINE'}
                             </div>
                         </div>
 
-                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end gap-4">
+                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end gap-4 translate-y-2 group-hover:translate-y-0 transition-transform">
                             <div className="flex flex-col gap-2">
-                                <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase">Nobar JKT48</div>
+                                <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase">{settings?.title || 'Nobar JKT48'}</div>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); window.location.reload(); }}
+                                    onClick={handleRefresh}
                                     className="flex items-center gap-2.5 px-4 py-2 bg-white/5 border border-white/10 rounded-full transition-all text-neon-blue hover:bg-white/10 group"
                                 >
                                     <RotateCcw size={16} className="group-hover:rotate-[-45deg] transition-transform" />
@@ -405,17 +437,19 @@ const Streaming = () => {
 
                             <div className="flex items-center gap-3 sm:gap-6 bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10">
                                 <div className="relative">
-                                    <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center">
+                                    <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center hover:text-neon-blue transition-colors">
                                         <Settings size={20} className={showQualityMenu ? 'text-neon-blue' : 'text-gray-300'} />
-                                        <span className="text-[8px] mt-1 font-mono">{quality.replace('hd', '')}P</span>
+                                        <span className="text-[8px] mt-1 font-mono uppercase tracking-widest">{quality.replace('hd', '')}p</span>
                                     </button>
+
                                     {showQualityMenu && (
-                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[120px] z-50">
+                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[140px] z-50 shadow-2xl backdrop-blur-xl">
+                                            <div className="text-[8px] font-mono text-gray-500 px-3 py-1 uppercase tracking-widest">Select Resolution</div>
                                             {[
-                                                { label: '1080p', value: 'hd1080' },
-                                                { label: '720p', value: 'hd720' },
-                                                { label: '480p', value: 'large' },
-                                                { label: '360p', value: 'medium' }
+                                                { label: '1080p Ultra', value: 'hd1080' },
+                                                { label: '720p HD', value: 'hd720' },
+                                                { label: '480p SD', value: 'large' },
+                                                { label: '360p Data Saver', value: 'medium' }
                                             ].map((q) => (
                                                 <button
                                                     key={q.value}
@@ -424,9 +458,9 @@ const Streaming = () => {
                                                         setQuality(q.value);
                                                         setShowQualityMenu(false);
                                                         setLoading(true);
-                                                        setTimeout(() => setLoading(false), 4000);
+                                                        setRefreshKey(prev => prev + 1);
                                                     }}
-                                                    className={`w-full text-left px-4 py-2 rounded-lg text-xs font-bold ${quality === q.value ? 'bg-neon-blue' : 'text-gray-400 hover:bg-white/5'}`}
+                                                    className={`w-full text-left px-4 py-2.5 rounded-lg text-[10px] font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
                                                 >
                                                     {q.label}
                                                 </button>
@@ -434,12 +468,21 @@ const Streaming = () => {
                                         </div>
                                     )}
                                 </div>
+
                                 <div className="hidden sm:flex items-center gap-3">
                                     <Volume2 size={20} className="text-gray-300" />
-                                    <input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} onMouseDown={(e) => e.stopPropagation()} className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue" />
+                                    <input
+                                        type="range"
+                                        min="0" max="1" step="0.1"
+                                        value={volume}
+                                        onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
+                                    />
                                 </div>
+
                                 <button
-                                    className="p-2 border border-neon-blue/20 rounded-lg text-neon-blue hover:bg-neon-blue/10"
+                                    className="p-2 border border-neon-blue/20 rounded-lg text-neon-blue hover:bg-neon-blue/10 transition-colors"
                                     onClick={async (e) => {
                                         e.stopPropagation();
                                         const playerEl = document.getElementById('main-player-container');
@@ -457,34 +500,49 @@ const Streaming = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Footer Info */}
                 <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-red-500 rounded-full" /><span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Signal: Active</span></div>
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                            <span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Signal: Active</span>
+                        </div>
                         <div className="h-3 w-px bg-white/10" />
                         <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em]">Live Channel</span>
                     </div>
+                    <div className="text-[9px] text-gray-600 font-mono uppercase tracking-[0.2em]">Latency: Optimized</div>
                 </div>
             </div>
 
+            {/* Chat Section */}
             <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
                 <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
-                    <h3 className="font-bold">LIVE CHAT</h3>
+                    <h3 className="font-bold tracking-widest text-xs uppercase">LIVE CHAT</h3>
                     <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
                         <Users size={12} /> {viewerCount.toLocaleString()}
                     </div>
                 </div>
-                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                <div className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar">
                     {messages.map((msg, idx) => (
                         <div key={idx} className="text-sm">
                             <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
-                            <span className="text-gray-300 break-words">{msg.text}</span>
+                            <span className="text-gray-300 break-words font-medium">{msg.text}</span>
                         </div>
                     ))}
                 </div>
-                <form onSubmit={handleSend} className="p-4 border-t border-white/10">
+                <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-black/20">
                     <div className="relative">
-                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:border-neon-blue outline-none" placeholder="Chat..." />
-                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"><Send size={16} /></button>
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2.5 text-white text-sm focus:border-neon-blue outline-none transition-all"
+                            placeholder="Type message..."
+                        />
+                        <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-neon-blue transition-colors">
+                            <Send size={18} />
+                        </button>
                     </div>
                 </form>
             </div>

@@ -212,14 +212,23 @@ const Admin = () => {
                                             className="w-full bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-mono text-gray-500 uppercase mb-2">Waktu Show (Countdown)</label>
+                                    <div className="relative">
+                                        <label className="block text-xs font-mono text-gray-500 uppercase mb-2 flex justify-between">
+                                            <span>Waktu Show (Countdown)</span>
+                                            <button
+                                                onClick={() => setSettings({ ...settings, date: new Date().toISOString() })}
+                                                className="text-[10px] text-neon-blue hover:underline uppercase font-bold"
+                                            >
+                                                Sync Now (Start)
+                                            </button>
+                                        </label>
                                         <input
                                             type="datetime-local"
                                             value={settings.date ? settings.date.substring(0, 16) : ''}
                                             onChange={(e) => setSettings({ ...settings, date: e.target.value })}
                                             className="w-full bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none font-mono"
                                         />
+                                        <p className="text-[9px] text-gray-500 mt-1 uppercase">Klik Sync Now untuk memulai show detik ke-0 bagi semua orang.</p>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
