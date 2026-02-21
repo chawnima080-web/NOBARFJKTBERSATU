@@ -89,6 +89,7 @@ const Streaming = () => {
         return id;
     });
     const [sessionConflict, setSessionConflict] = useState(false);
+    const [activeTimeOffset, setActiveTimeOffset] = useState(0);
 
     // 3. Authorization Effect
     useEffect(() => {
@@ -278,7 +279,7 @@ const Streaming = () => {
             });
             iframe.contentWindow.postMessage(message, '*');
         }
-    }, [volume, url, isPlayerReady, refreshKey]);
+    }, [volume, isPlayerReady]); // Remove dependency on url/refreshKey/quality to prevent UI flicker
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -290,18 +291,20 @@ const Streaming = () => {
     const videoId = getVideoId(url?.trim());
 
     // --- REAL-TIME SYNC LOGIC ---
-    const calculateTimeOffset = () => {
-        if (!startTime) return 0;
-        const now = Date.now();
-        const diff = Math.floor((now - startTime) / 1000);
-        return diff > 0 ? diff : 0;
-    };
+    useEffect(() => {
+        if (startTime && !loading) {
+            const now = Date.now();
+            const diff = Math.floor((now - startTime) / 1000);
+            setActiveTimeOffset(diff > 0 ? diff : 0);
+        }
+    }, [startTime, url, refreshKey]); // Update offset ONLY when necessary (refresh/start/url change)
 
     const handleRefresh = (e) => {
         if (e) e.stopPropagation();
         setLoading(true);
         setIsPlayerReady(false);
         setRefreshKey(prev => prev + 1);
+        // Offset will be recalculated by the useEffect above
         setTimeout(() => setLoading(false), 1500);
     };
 
@@ -397,8 +400,6 @@ const Streaming = () => {
         );
     }
 
-    const timeOffset = calculateTimeOffset();
-
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden">
@@ -407,8 +408,8 @@ const Streaming = () => {
                         {videoId ? (
                             <iframe
                                 id="yt-player-iframe"
-                                key={`${videoId}-${quality}-${refreshKey}`}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
+                                key={`${videoId}-${refreshKey}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
