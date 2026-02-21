@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTriangle, RotateCcw } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
 import { ref, onValue, set, onDisconnect, serverTimestamp, push, limitToLast, query } from 'firebase/database';
 
 const Streaming = () => {
+    const navigate = useNavigate();
     // 1. Core State with Safe Defaults
     const [currentTickets, setCurrentTickets] = useState([]);
     const [publicTickets, setPublicTickets] = useState([]);
@@ -12,28 +14,38 @@ const Streaming = () => {
 
     // 2. Global Sync Listener
     useEffect(() => {
-        const dbRef = ref(db, '/');
-        const unsubscribe = onValue(dbRef, (snapshot) => {
-            const data = snapshot.val();
+        // Granular Listeners
+        const ticketsRef = ref(db, 'tickets');
+        const unsubTickets = onValue(ticketsRef, (snap) => {
+            const data = snap.val();
+            setCurrentTickets(Array.isArray(data) ? data : []);
+            if (!dataLoaded && data) setDataLoaded(true);
+        });
+
+        const publicTicketsRef = ref(db, 'publicTickets');
+        const unsubPublic = onValue(publicTicketsRef, (snap) => {
+            const data = snap.val();
+            setPublicTickets(Array.isArray(data) ? data : []);
+            if (!dataLoaded && data) setDataLoaded(true);
+        });
+
+        const settingsRef = ref(db, 'settings');
+        const unsubSettings = onValue(settingsRef, (snap) => {
+            const data = snap.val();
             if (data) {
-                setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
-                setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
-                setDataLoaded(true); // CRITICAL: Signal that we have the valid ticket list
-                if (data.settings) {
-                    const newUrl = data.settings.streamUrl || '';
-                    setUrl(prev => {
-                        if (prev !== newUrl) {
-                            setLoading(true);
-                            setTimeout(() => setLoading(false), 4000);
-                            return newUrl;
-                        }
-                        return prev;
-                    });
-                } else {
-                    setUrl('');
-                }
+                const newUrl = data.streamUrl || '';
+                setUrl(prev => {
+                    if (prev !== newUrl) {
+                        setLoading(true);
+                        setTimeout(() => setLoading(false), 4000);
+                        return newUrl;
+                    }
+                    return prev;
+                });
+            } else {
+                setUrl('');
             }
-        }, (err) => console.error("Firebase Sync Error:", err));
+        });
 
         const chatRef = query(ref(db, 'chats'), limitToLast(50));
         const unsubscribeChat = onValue(chatRef, (snapshot) => {
@@ -45,10 +57,12 @@ const Streaming = () => {
         });
 
         return () => {
-            unsubscribe();
+            unsubTickets();
+            unsubPublic();
+            unsubSettings();
             unsubscribeChat();
         };
-    }, []);
+    }, [dataLoaded]);
 
     const [ticketInput, setTicketInput] = useState('');
     const [isAuthorized, setIsAuthorized] = useState(false);
@@ -182,8 +196,7 @@ const Streaming = () => {
         setTempName('');
 
         localStorage.setItem('active_jkt_ticket', ticket);
-        const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?ticket=' + ticket;
-        window.history.pushState({ path: newUrl }, '', newUrl);
+        navigate(`/streaming?ticket=${ticket}`, { replace: true });
     };
 
     const handleTicketSubmit = (e) => {
@@ -381,8 +394,12 @@ const Streaming = () => {
                         <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end gap-4">
                             <div className="flex flex-col gap-2">
                                 <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase">Nobar JKT48</div>
-                                <button onClick={(e) => { e.stopPropagation(); window.location.reload(); }} className="p-2.5 bg-white/5 border border-white/10 rounded-full transition-all text-neon-blue hover:bg-white/10">
-                                    <RotateCcw size={16} />
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); window.location.reload(); }}
+                                    className="flex items-center gap-2.5 px-4 py-2 bg-white/5 border border-white/10 rounded-full transition-all text-neon-blue hover:bg-white/10 group"
+                                >
+                                    <RotateCcw size={16} className="group-hover:rotate-[-45deg] transition-transform" />
+                                    <span className="text-[10px] font-bold tracking-[0.2em] pt-0.5">REFRESH LIVE</span>
                                 </button>
                             </div>
 

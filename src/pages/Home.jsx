@@ -8,24 +8,48 @@ import { db } from '../lib/firebase';
 import { ref, onValue } from 'firebase/database';
 
 const Home = () => {
-    const [settings, setSettings] = useState({
-        title: 'NOBAR JKT48',
-        subtitle: 'LIVE STREAMING EXPERIENCE',
-        date: '2026-02-28T19:00:00'
+    const [settings, setSettings] = useState(() => {
+        const cached = localStorage.getItem('jkt_home_settings');
+        return cached ? JSON.parse(cached) : {
+            title: 'NOBAR JKT48',
+            subtitle: 'LIVE STREAMING EXPERIENCE',
+            date: '2026-02-28T19:00:00'
+        };
     });
 
-    const [selectedLineup, setSelectedLineup] = useState([1, 5, 20]);
+    const [selectedLineup, setSelectedLineup] = useState(() => {
+        const cached = localStorage.getItem('jkt_home_lineup');
+        return cached ? JSON.parse(cached) : [1, 5, 20];
+    });
 
     useEffect(() => {
-        const dbRef = ref(db, '/');
-        const unsubscribe = onValue(dbRef, (snapshot) => {
+        // Granular Listeners: Avoid root listener to prevent re-renders on chat/presence
+        const settingsRef = ref(db, 'settings');
+        const unsubSettings = onValue(settingsRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
-                if (data.lineup) setSelectedLineup(Array.isArray(data.lineup) ? data.lineup : []);
+                setSettings(prev => {
+                    const next = { ...prev, ...data };
+                    localStorage.setItem('jkt_home_settings', JSON.stringify(next));
+                    return next;
+                });
             }
         });
-        return () => unsubscribe();
+
+        const lineupRef = ref(db, 'lineup');
+        const unsubLineup = onValue(lineupRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const lineupArray = Array.isArray(data) ? data : [];
+                setSelectedLineup(lineupArray);
+                localStorage.setItem('jkt_home_lineup', JSON.stringify(lineupArray));
+            }
+        });
+
+        return () => {
+            unsubSettings();
+            unsubLineup();
+        };
     }, []);
 
     const featuredMembers = members.filter(m => selectedLineup.includes(m.id)).slice(0, 3);
