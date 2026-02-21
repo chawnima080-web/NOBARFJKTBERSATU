@@ -164,22 +164,17 @@ const Streaming = () => {
         // HEARTBEAT: Update every 10s for fast count updates
         const presenceHeartbeat = setInterval(updatePresence, 10000);
 
-        // Listener for Unique Viewers Count (Calibrated for Server Time)
+        // Listener for Unique Viewers Count
+        // NO timestamp filter — onDisconnect removes stale entries automatically.
+        // This is the correct and simple approach.
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 const uniqueSessions = new Set();
-                const serverNow = Date.now() + serverTimeOffset;
-
                 Object.values(data).forEach(entry => {
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
-                        const lastActive = entry.timestamp || 0;
-                        // Window: 30 seconds (timestamp must be <= serverNow, not future)
-                        // Using forward-only check: entry must have been written recently
-                        if (lastActive > 0 && (serverNow - lastActive) < 30000) {
-                            uniqueSessions.add(entry.id);
-                        }
+                        uniqueSessions.add(entry.id);
                     }
                 });
                 setViewerCount(uniqueSessions.size > 0 ? uniqueSessions.size : 1);
@@ -359,7 +354,7 @@ const Streaming = () => {
                 }), '*');
             }
         }
-    }, [volume, isPlayerReady, isActivated, refreshKey, quality]);
+    }, [volume, isPlayerReady, isActivated]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -593,6 +588,7 @@ const Streaming = () => {
                                                         setQuality(q.value);
                                                         setShowQualityMenu(false);
                                                         setLoading(true);
+                                                        setIsPlayerReady(false); // Reset so onLoad re-triggers unmute
                                                         setRefreshKey(prev => prev + 1);
                                                     }}
                                                     className={`w-full text-left px-4 py-2.5 rounded-lg text-[10px] font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
