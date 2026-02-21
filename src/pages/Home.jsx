@@ -72,8 +72,16 @@ const Home = () => {
                 >
                     <div className="absolute -inset-10 bg-neon-blue/20 blur-[120px] rounded-full mix-blend-screen" />
 
-                    <h1 className="text-6xl md:text-9xl font-display font-black mb-6 tracking-tighter relative z-20">
-                        <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-500 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] uppercase">
+                    {/* Dynamic font sizing for long titles */}
+                    <h1
+                        className="font-display font-black mb-6 tracking-tighter relative z-20 uppercase leading-[0.9]"
+                        style={{
+                            fontSize: `clamp(2.5rem, ${settings.title.length > 15 ? 12 : 18}vw, ${settings.title.length > 20 ? '5rem' : '8rem'})`,
+                            wordBreak: 'break-word',
+                            hyphens: 'auto'
+                        }}
+                    >
+                        <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-500 drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
                             {settings.title}
                         </span>
                     </h1>
