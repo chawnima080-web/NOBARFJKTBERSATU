@@ -252,7 +252,6 @@ const Streaming = () => {
     const [quality, setQuality] = useState('hd1080');
     const [showQualityMenu, setShowQualityMenu] = useState(false);
     const [volume, setVolume] = useState(0.8);
-    const [isMuted, setIsMuted] = useState(true); // Default to muted for autoplay permission
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
     const [messages, setMessages] = useState([
@@ -268,32 +267,18 @@ const Streaming = () => {
         }
     }, [showControls]);
 
-    // Handle Volume & Mute PostMessage
+    // Handle Volume PostMessage
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
         if (iframe && isPlayerReady) {
-            // Send Volume
-            iframe.contentWindow.postMessage(JSON.stringify({
+            const message = JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
                 args: [volume * 100]
-            }), '*');
-
-            // Send Mute/Unmute
-            iframe.contentWindow.postMessage(JSON.stringify({
-                event: 'command',
-                func: isMuted ? 'mute' : 'unMute',
-                args: []
-            }), '*');
-
-            // Force Play just in case
-            iframe.contentWindow.postMessage(JSON.stringify({
-                event: 'command',
-                func: 'playVideo',
-                args: []
-            }), '*');
+            });
+            iframe.contentWindow.postMessage(message, '*');
         }
-    }, [volume, isMuted, url, isPlayerReady, refreshKey]);
+    }, [volume, url, isPlayerReady, refreshKey]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -423,7 +408,7 @@ const Streaming = () => {
                             <iframe
                                 id="yt-player-iframe"
                                 key={`${videoId}-${quality}-${refreshKey}`}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
@@ -444,28 +429,14 @@ const Streaming = () => {
                         </div>
                     )}
 
-                    {isMuted && !loading && (
-                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center group/play">
+                    {!isPlayerReady && !loading && (
+                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center">
                             <button
-                                onClick={() => {
-                                    setIsMuted(false);
-                                    // Robust unMute for sound activation
-                                    const iframe = document.getElementById('yt-player-iframe');
-                                    if (iframe) {
-                                        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*');
-                                        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
-                                    }
-                                }}
-                                className="relative w-24 h-24 bg-neon-blue/20 border-2 border-neon-blue/60 rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-[0_0_50px_rgba(0,183,255,0.4)] group-hover/play:bg-neon-blue/40"
+                                onClick={() => handleRefresh()}
+                                className="bg-neon-blue text-white px-8 py-4 rounded-full font-bold flex items-center gap-4 hover:scale-105 transition-all shadow-[0_0_30px_rgba(0,183,255,0.4)]"
                             >
-                                <div className="absolute inset-0 rounded-full animate-ping bg-neon-blue/20 opacity-40" />
-                                <div className="p-5 bg-neon-blue rounded-full shadow-[0_0_20px_#00b7ff] z-10">
-                                    <Play size={36} fill="white" className="text-white ml-1" />
-                                </div>
+                                <Play size={24} fill="currentColor" /> START WATCHING
                             </button>
-                            <div className="absolute bottom-1/4 text-white/40 font-mono text-[9px] uppercase tracking-[0.3em] pointer-events-none">
-                                Tap to start synchronization
-                            </div>
                         </div>
                     )}
 
@@ -528,17 +499,12 @@ const Streaming = () => {
                                 </div>
 
                                 <div className="hidden sm:flex items-center gap-3">
-                                    <button onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}>
-                                        <Volume2 size={20} className={isMuted ? 'text-neon-pink' : 'text-gray-300'} />
-                                    </button>
+                                    <Volume2 size={20} className="text-gray-300" />
                                     <input
                                         type="range"
                                         min="0" max="1" step="0.1"
                                         value={volume}
-                                        onChange={(e) => {
-                                            setVolume(parseFloat(e.target.value));
-                                            if (isMuted) setIsMuted(false);
-                                        }}
+                                        onChange={(e) => setVolume(parseFloat(e.target.value))}
                                         onMouseDown={(e) => e.stopPropagation()}
                                         className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
                                     />
