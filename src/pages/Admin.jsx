@@ -29,48 +29,59 @@ const Admin = () => {
             setIsConnected(snap.val() === true);
         });
 
-        const loadingTimeout = setTimeout(() => {
-            setLoading(false);
-        }, 5000); // Stop loading after 5 seconds no matter what
+        const loadingTimeout = setTimeout(() => setLoading(false), 5000);
 
-        const dbRef = ref(db, '/');
-        const unsubscribe = onValue(dbRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
-                if (data.lineup) setSelectedLineup(Array.isArray(data.lineup) ? data.lineup : []);
-                if (data.tickets) setTickets(Array.isArray(data.tickets) ? data.tickets : []);
-                if (data.publicTickets) setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
-            }
+        // Granular Listeners to avoid root-level "presence" or "chat" triggers resetting the UI
+        const settingsRef = ref(db, 'settings');
+        const unsubSettings = onValue(settingsRef, (snap) => {
+            const data = snap.val();
+            if (data) setSettings(prev => ({ ...prev, ...data }));
             setLoading(false);
-            clearTimeout(loadingTimeout);
-        }, (error) => {
-            console.error("Firebase connection error:", error);
-            setLoading(false);
-            clearTimeout(loadingTimeout);
         });
+
+        const lineupRef = ref(db, 'lineup');
+        const unsubLineup = onValue(lineupRef, (snap) => {
+            const data = snap.val();
+            if (data) setSelectedLineup(Array.isArray(data) ? data : []);
+        });
+
+        const ticketsRef = ref(db, 'tickets');
+        const unsubTickets = onValue(ticketsRef, (snap) => {
+            const data = snap.val();
+            if (data) setTickets(Array.isArray(data) ? data : []);
+        });
+
+        const publicTicketsRef = ref(db, 'publicTickets');
+        const unsubPublic = onValue(publicTicketsRef, (snap) => {
+            const data = snap.val();
+            if (data) setPublicTickets(Array.isArray(data) ? data : []);
+        });
+
         return () => {
-            unsubscribe();
             connectedUnsubscribe();
+            unsubSettings();
+            unsubLineup();
+            unsubTickets();
+            unsubPublic();
             clearTimeout(loadingTimeout);
         };
     }, []);
 
     const handleSave = async () => {
         setSaveStatus('Menyimpan...');
-
-        // Add a safety timeout for the save operation
         const saveTimeout = setTimeout(() => {
             setSaveStatus('Gagal: Timeout (Cek Rules/Koneksi)');
         }, 10000);
 
         try {
-            await set(ref(db, '/'), {
-                settings,
-                lineup: selectedLineup,
-                tickets,
-                publicTickets
-            });
+            // Updated to granular sets to avoid deleting 'chats', 'presence', or 'sessions' nodes
+            await Promise.all([
+                set(ref(db, 'settings'), settings),
+                set(ref(db, 'lineup'), selectedLineup),
+                set(ref(db, 'tickets'), tickets),
+                set(ref(db, 'publicTickets'), publicTickets)
+            ]);
+
             clearTimeout(saveTimeout);
             setSaveStatus('Berhasil disimpan ke Cloud!');
         } catch (error) {
@@ -213,15 +224,23 @@ const Admin = () => {
                                 </div>
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="block text-xs font-mono text-gray-500 uppercase mb-2">Streaming URL (HLS/YouTube/Twitch)</label>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="block text-xs font-mono text-gray-500 uppercase">Streaming URL (YouTube/HLS)</label>
+                                            <button
+                                                onClick={() => setSettings({ ...settings, streamUrl: '' })}
+                                                className="text-[10px] text-neon-pink hover:underline uppercase font-bold"
+                                            >
+                                                Kosongkan
+                                            </button>
+                                        </div>
                                         <input
                                             type="text"
                                             value={settings.streamUrl || ''}
                                             onChange={(e) => setSettings({ ...settings, streamUrl: e.target.value })}
-                                            placeholder="https://..."
+                                            placeholder="Paste link YouTube atau .m3u8..."
                                             className="w-full bg-black border border-white/10 rounded-lg p-3 text-white focus:border-neon-blue outline-none font-mono text-sm"
                                         />
-                                        <p className="text-[10px] text-gray-400 mt-2">Gunakan link .m3u8 (HLS) untuk OBS, atau link YouTube/Twitch.</p>
+                                        <p className="text-[10px] text-gray-400 mt-2">Gunakan link YouTube biasa atau link streaming m3u8.</p>
                                     </div>
                                 </div>
                             </div>
