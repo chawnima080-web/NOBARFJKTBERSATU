@@ -81,11 +81,13 @@ const Streaming = () => {
     const [tempName, setTempName] = useState('');
     const [viewerCount, setViewerCount] = useState(0);
     const [sessionId] = useState(() => {
-        let id = localStorage.getItem('jkt_session_id');
-        // Ensure every device is UNIQUE even if browser data is synced
-        if (!id || id.length < 20) {
-            id = `${nanoid()}_${Math.random().toString(36).substring(2, 9)}`;
-            localStorage.setItem('jkt_session_id', id);
+        // CRITICAL: Use sessionStorage (NOT localStorage) so Chrome Sync
+        // cannot share the same ID across devices. sessionStorage is
+        // isolated per-tab and per-device, guaranteeing true uniqueness.
+        let id = sessionStorage.getItem('jkt_device_session_id');
+        if (!id) {
+            id = nanoid();
+            sessionStorage.setItem('jkt_device_session_id', id);
         }
         return id;
     });
@@ -93,6 +95,8 @@ const Streaming = () => {
     const [activeTimeOffset, setActiveTimeOffset] = useState(0);
     const [serverTimeOffset, setServerTimeOffset] = useState(0);
     const [isActivated, setIsActivated] = useState(false); // Track first user interaction
+    // Detect touch device - overlay only needed on mobile
+    const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
     // 3. Server Time Offset Listener
     useEffect(() => {
@@ -157,8 +161,8 @@ const Streaming = () => {
         updatePresence();
         onDisconnect(presenceRef).remove();
 
-        // HEARTBEAT: Update every 20s
-        const presenceHeartbeat = setInterval(updatePresence, 20000);
+        // HEARTBEAT: Update every 10s for fast count updates
+        const presenceHeartbeat = setInterval(updatePresence, 10000);
 
         // Listener for Unique Viewers Count (Calibrated for Server Time)
         const globalPresenceRef = ref(db, 'presence');
@@ -171,8 +175,9 @@ const Streaming = () => {
                 Object.values(data).forEach(entry => {
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
                         const lastActive = entry.timestamp || 0;
-                        // Robust window: 60 seconds (Covers all network/clock variances)
-                        if (Math.abs(serverNow - lastActive) < 60000) {
+                        // Window: 30 seconds (timestamp must be <= serverNow, not future)
+                        // Using forward-only check: entry must have been written recently
+                        if (lastActive > 0 && (serverNow - lastActive) < 30000) {
                             uniqueSessions.add(entry.id);
                         }
                     }
@@ -500,6 +505,11 @@ const Streaming = () => {
                                 title="YouTube Stream"
                                 onLoad={() => {
                                     setIsPlayerReady(true);
+                                    // On desktop, skip activation and just hide loading
+                                    if (!isTouchDevice) {
+                                        setIsActivated(true);
+                                        setTimeout(() => setLoading(false), 1500);
+                                    }
                                 }}
                             />
                         ) : (
@@ -507,14 +517,14 @@ const Streaming = () => {
                         )}
                     </div>
 
-                    {/* INTERACTION OVERLAY (Fixes Android Autoplay/Sound) */}
-                    {!isActivated && (
+                    {/* INTERACTION OVERLAY (Mobile Only - Fixes Android Autoplay/Sound) */}
+                    {isTouchDevice && !isActivated && (
                         <div
-                            className="absolute inset-0 z-[40] bg-black/10 cursor-pointer flex flex-col items-center justify-center gap-4"
+                            className="absolute inset-0 z-[40] bg-black flex flex-col items-center justify-center gap-4 cursor-pointer"
                             onClick={activatePlayer}
                         >
                             {loading && (
-                                <div className="flex flex-col items-center gap-4 animate-in fade-in duration-500">
+                                <div className="flex flex-col items-center gap-4">
                                     <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
                                     <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
                                     <div className="text-white/40 text-[8px] uppercase tracking-widest mt-4">Tap screen to activate audio</div>
@@ -528,7 +538,8 @@ const Streaming = () => {
                         </div>
                     )}
 
-                    {loading && (
+                    {/* Desktop loading overlay (only shown on non-touch devices) */}
+                    {!isTouchDevice && loading && (
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
                             <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
