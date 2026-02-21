@@ -272,6 +272,30 @@ const Streaming = () => {
         }
     }, [showControls]);
 
+    // Deter Inspection & Right-Click
+    useEffect(() => {
+        const handleContextMenu = (e) => e.preventDefault();
+        const handleKeyDown = (e) => {
+            // Block F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
+            if (
+                e.keyCode === 123 ||
+                (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) ||
+                (e.ctrlKey && e.keyCode === 85)
+            ) {
+                e.preventDefault();
+                return false;
+            }
+        };
+
+        window.addEventListener('contextmenu', handleContextMenu);
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('contextmenu', handleContextMenu);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, []);
+
     // Handle Volume PostMessage
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
@@ -405,7 +429,7 @@ const Streaming = () => {
     }
 
     return (
-        <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
+        <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white select-none">
             <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden">
                 <div className="flex-grow relative h-full w-full">
                     <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
