@@ -82,8 +82,9 @@ const Streaming = () => {
     const [viewerCount, setViewerCount] = useState(0);
     const [sessionId] = useState(() => {
         let id = localStorage.getItem('jkt_session_id');
-        if (!id) {
-            id = nanoid();
+        // Ensure every device is UNIQUE even if browser data is synced
+        if (!id || id.length < 20) {
+            id = `${nanoid()}_${Math.random().toString(36).substring(2, 9)}`;
             localStorage.setItem('jkt_session_id', id);
         }
         return id;
@@ -91,13 +92,15 @@ const Streaming = () => {
     const [sessionConflict, setSessionConflict] = useState(false);
     const [activeTimeOffset, setActiveTimeOffset] = useState(0);
     const [serverTimeOffset, setServerTimeOffset] = useState(0);
+    const [isActivated, setIsActivated] = useState(false); // Track first user interaction
 
     // 3. Server Time Offset Listener
     useEffect(() => {
         const offsetRef = ref(db, ".info/serverTimeOffset");
-        return onValue(offsetRef, (snap) => {
+        const unsub = onValue(offsetRef, (snap) => {
             setServerTimeOffset(snap.val() || 0);
         });
+        return () => unsub();
     }, []);
 
     // 4. Authorization Effect
@@ -137,7 +140,7 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 6. Presence & Heartbeat Logic (High Precision for Multi-Device)
+    // 6. Presence & Heartbeat Logic (HIGH PRECISION)
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict || !dataLoaded) return;
 
@@ -154,8 +157,8 @@ const Streaming = () => {
         updatePresence();
         onDisconnect(presenceRef).remove();
 
-        // HEARTBEAT: Update every 15s
-        const presenceHeartbeat = setInterval(updatePresence, 15000);
+        // HEARTBEAT: Update every 20s
+        const presenceHeartbeat = setInterval(updatePresence, 20000);
 
         // Listener for Unique Viewers Count (Calibrated for Server Time)
         const globalPresenceRef = ref(db, 'presence');
@@ -163,14 +166,13 @@ const Streaming = () => {
             const data = snapshot.val();
             if (data) {
                 const uniqueSessions = new Set();
-                const currentOffset = serverTimeOffset || 0;
-                const serverNow = Date.now() + currentOffset;
+                const serverNow = Date.now() + serverTimeOffset;
 
                 Object.values(data).forEach(entry => {
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
                         const lastActive = entry.timestamp || 0;
-                        // Precision window: 60 seconds (Robust for mobile latency/clock drift)
-                        if (serverNow - lastActive < 60000) {
+                        // Robust window: 60 seconds (Covers all network/clock variances)
+                        if (Math.abs(serverNow - lastActive) < 60000) {
                             uniqueSessions.add(entry.id);
                         }
                     }
@@ -196,9 +198,10 @@ const Streaming = () => {
             if (!data) return;
 
             if (data.id !== sessionId) {
-                const now = Date.now();
+                const now = Date.now() + serverTimeOffset;
                 const lastSeen = data.timestamp || 0;
-                if (now - lastSeen < 40000) {
+                // Conflict grace period
+                if (Math.abs(now - lastSeen) < 35000) {
                     setSessionConflict(true);
                     if (lockInterval) clearInterval(lockInterval);
                 } else {
@@ -226,7 +229,7 @@ const Streaming = () => {
             clearInterval(presenceHeartbeat);
             if (lockInterval) clearInterval(lockInterval);
         };
-    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, dataLoaded]);
+    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, dataLoaded, serverTimeOffset]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -311,25 +314,47 @@ const Streaming = () => {
         };
     }, []);
 
-    // Handle Volume PostMessage & Automatic Unmute Attempt
+    // --- ACTIVATION & UNMUTE LOGIC ---
+    const activatePlayer = () => {
+        const iframe = document.getElementById('yt-player-iframe');
+        if (iframe) {
+            // Send commands to unlock audio and force play
+            const commands = [
+                { func: 'playVideo', args: [] },
+                { func: 'unMute', args: [] },
+                { func: 'setVolume', args: [volume * 100] }
+            ];
+            commands.forEach(cmd => {
+                iframe.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: cmd.func,
+                    args: cmd.args
+                }), '*');
+            });
+            setIsActivated(true);
+            setLoading(false);
+        }
+    };
+
+    // Handle Volume PostMessage & Persistent Unmute
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
         if (iframe && isPlayerReady) {
-            // Volume
             iframe.contentWindow.postMessage(JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
                 args: [volume * 100]
             }), '*');
 
-            // Automatic unMute attempt for seamless flow
-            iframe.contentWindow.postMessage(JSON.stringify({
-                event: 'command',
-                func: 'unMute',
-                args: []
-            }), '*');
+            if (isActivated) {
+                iframe.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'unMute',
+                    args: []
+                }), '*');
+            }
         }
-    }, [volume, isPlayerReady]);
+    }, [volume, isPlayerReady, isActivated, refreshKey, quality]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -343,11 +368,11 @@ const Streaming = () => {
     // --- REAL-TIME SYNC LOGIC ---
     useEffect(() => {
         if (startTime && !loading) {
-            const now = Date.now();
+            const now = Date.now() + serverTimeOffset;
             const diff = Math.floor((now - startTime) / 1000);
             setActiveTimeOffset(diff > 0 ? diff : 0);
         }
-    }, [startTime, url, refreshKey]);
+    }, [startTime, url, refreshKey, serverTimeOffset]);
 
     const handleRefresh = (e) => {
         if (e) e.stopPropagation();
@@ -355,6 +380,8 @@ const Streaming = () => {
         setIsPlayerReady(false);
         setActiveTimeOffset(0); // Reset offset to force recalculation
         setRefreshKey(prev => prev + 1);
+        // Force re-activation requirement on full manual refresh
+        setIsActivated(false);
         setTimeout(() => setLoading(false), 2000);
     };
 
@@ -395,7 +422,7 @@ const Streaming = () => {
                     <button
                         onClick={async () => {
                             const sessionRef = ref(db, `sessions/${activeTicket}`);
-                            await set(sessionRef, { id: sessionId, timestamp: Date.now() });
+                            await set(sessionRef, { id: sessionId, timestamp: serverTimestamp() });
                             setTimeout(() => window.location.reload(), 500);
                         }}
                         className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold"
@@ -467,19 +494,39 @@ const Streaming = () => {
                             <iframe
                                 id="yt-player-iframe"
                                 key={refreshKey}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playlist=${videoId}&loop=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playlist=${videoId}&loop=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}&playsinline=1`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
                                 onLoad={() => {
                                     setIsPlayerReady(true);
-                                    setTimeout(() => setLoading(false), 2000);
                                 }}
                             />
                         ) : (
                             <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
                         )}
                     </div>
+
+                    {/* INTERACTION OVERLAY (Fixes Android Autoplay/Sound) */}
+                    {!isActivated && (
+                        <div
+                            className="absolute inset-0 z-[40] bg-black/10 cursor-pointer flex flex-col items-center justify-center gap-4"
+                            onClick={activatePlayer}
+                        >
+                            {loading && (
+                                <div className="flex flex-col items-center gap-4 animate-in fade-in duration-500">
+                                    <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
+                                    <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
+                                    <div className="text-white/40 text-[8px] uppercase tracking-widest mt-4">Tap screen to activate audio</div>
+                                </div>
+                            )}
+                            {!loading && isPlayerReady && (
+                                <div className="bg-neon-blue/20 backdrop-blur-md px-6 py-3 rounded-full border border-neon-blue/40 animate-bounce">
+                                    <div className="text-neon-blue font-bold text-[10px] uppercase tracking-[0.2em]">TAP TO START WATCHING</div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {loading && (
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
