@@ -223,6 +223,7 @@ const Streaming = () => {
     const [quality, setQuality] = useState('hd1080');
     const [showQualityMenu, setShowQualityMenu] = useState(false);
     const [volume, setVolume] = useState(0.8);
+    const [isMuted, setIsMuted] = useState(true); // Default to muted for autoplay permission
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
     const [messages, setMessages] = useState([
@@ -238,18 +239,32 @@ const Streaming = () => {
         }
     }, [showControls]);
 
-    // Handle Volume PostMessage
+    // Handle Volume & Mute PostMessage
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
         if (iframe && isPlayerReady) {
-            const message = JSON.stringify({
+            // Send Volume
+            iframe.contentWindow.postMessage(JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
                 args: [volume * 100]
-            });
-            iframe.contentWindow.postMessage(message, '*');
+            }), '*');
+
+            // Send Mute/Unmute
+            iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: isMuted ? 'mute' : 'unMute',
+                args: []
+            }), '*');
+
+            // Force Play just in case
+            iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'playVideo',
+                args: []
+            }), '*');
         }
-    }, [volume, url, isPlayerReady, refreshKey]);
+    }, [volume, isMuted, url, isPlayerReady, refreshKey]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -379,7 +394,7 @@ const Streaming = () => {
                             <iframe
                                 id="yt-player-iframe"
                                 key={`${videoId}-${quality}-${refreshKey}`}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${timeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
@@ -400,13 +415,17 @@ const Streaming = () => {
                         </div>
                     )}
 
-                    {!isPlayerReady && !loading && (
-                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                    {isMuted && !loading && (
+                        <div className="absolute inset-0 z-[34] bg-black/40 backdrop-blur-[2px] flex items-center justify-center">
                             <button
-                                onClick={() => handleRefresh()}
-                                className="bg-neon-blue text-white px-8 py-4 rounded-full font-bold flex items-center gap-4 hover:scale-105 transition-all shadow-[0_0_30px_rgba(0,183,255,0.4)]"
+                                onClick={() => setIsMuted(false)}
+                                className="bg-neon-blue text-white px-10 py-5 rounded-full font-display font-bold flex items-center gap-4 hover:scale-110 transition-all shadow-[0_0_50px_rgba(0,183,255,0.4)]"
                             >
-                                <Play size={24} fill="currentColor" /> START WATCHING
+                                <Volume2 size={32} fill="white" className="animate-pulse" />
+                                <div className="flex flex-col items-start leading-none">
+                                    <span className="text-xl tracking-wider">TAP TO UNMUTE</span>
+                                    <span className="text-[10px] opacity-70 font-mono mt-1">REAL-TIME SYNC ACTIVE</span>
+                                </div>
                             </button>
                         </div>
                     )}
@@ -470,12 +489,17 @@ const Streaming = () => {
                                 </div>
 
                                 <div className="hidden sm:flex items-center gap-3">
-                                    <Volume2 size={20} className="text-gray-300" />
+                                    <button onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}>
+                                        <Volume2 size={20} className={isMuted ? 'text-neon-pink' : 'text-gray-300'} />
+                                    </button>
                                     <input
                                         type="range"
                                         min="0" max="1" step="0.1"
                                         value={volume}
-                                        onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                        onChange={(e) => {
+                                            setVolume(parseFloat(e.target.value));
+                                            if (isMuted) setIsMuted(false);
+                                        }}
                                         onMouseDown={(e) => e.stopPropagation()}
                                         className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue"
                                     />
