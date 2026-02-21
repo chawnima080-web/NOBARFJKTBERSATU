@@ -90,8 +90,17 @@ const Streaming = () => {
     });
     const [sessionConflict, setSessionConflict] = useState(false);
     const [activeTimeOffset, setActiveTimeOffset] = useState(0);
+    const [serverTimeOffset, setServerTimeOffset] = useState(0);
 
-    // 3. Authorization Effect
+    // 3. Server Time Offset Listener
+    useEffect(() => {
+        const offsetRef = ref(db, ".info/serverTimeOffset");
+        return onValue(offsetRef, (snap) => {
+            setServerTimeOffset(snap.val() || 0);
+        });
+    }, []);
+
+    // 4. Authorization Effect
     useEffect(() => {
         if (!dataLoaded) return;
         const allValidTickets = [...currentTickets, ...publicTickets];
@@ -112,7 +121,7 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, isAuthorized, sessionConflict, activeTicket, dataLoaded]);
 
-    // 4. Cleanup Effect
+    // 5. Cleanup Effect (Local Storage)
     useEffect(() => {
         if (!dataLoaded) return;
         const allValidTickets = [...currentTickets, ...publicTickets];
@@ -128,7 +137,7 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 5. Presence & Heartbeat Logic (Optimized for Refresh & Android)
+    // 6. Presence & Heartbeat Logic (High Precision for Multi-Device)
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict || !dataLoaded) return;
 
@@ -145,22 +154,22 @@ const Streaming = () => {
         updatePresence();
         onDisconnect(presenceRef).remove();
 
-        // HEARTBEAT: Update every 15s to keep count accurate
+        // HEARTBEAT: Update every 15s
         const presenceHeartbeat = setInterval(updatePresence, 15000);
 
-        // Listener for Unique Viewers Count (High Precision)
+        // Listener for Unique Viewers Count (Calibrated for Server Time)
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 const uniqueSessions = new Set();
-                const now = Date.now();
+                const serverNow = Date.now() + serverTimeOffset;
 
                 Object.values(data).forEach(entry => {
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
                         const lastActive = entry.timestamp || 0;
-                        // Precision window: 30 seconds
-                        if (now - lastActive < 30000) {
+                        // Precision window: 45 seconds (Buffer for mobile latency)
+                        if (serverNow - lastActive < 45000) {
                             uniqueSessions.add(entry.id);
                         }
                     }
@@ -448,7 +457,6 @@ const Streaming = () => {
                         {videoId ? (
                             <iframe
                                 id="yt-player-iframe"
-                                key={`${videoId}-${refreshKey}`}
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
