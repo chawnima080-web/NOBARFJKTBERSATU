@@ -5,9 +5,12 @@ import { db } from '../lib/firebase';
 import { ref, onValue, set, onDisconnect, serverTimestamp, push, limitToLast, query } from 'firebase/database';
 
 const Streaming = () => {
-    const [currentTickets, setCurrentTickets] = useState(['TRIAL-JKT48']);
+    // 1. Core State with Safe Defaults
+    const [currentTickets, setCurrentTickets] = useState([]);
     const [publicTickets, setPublicTickets] = useState([]);
+    const [dataLoaded, setDataLoaded] = useState(false);
 
+    // 2. Global Sync Listener
     useEffect(() => {
         const dbRef = ref(db, '/');
         const unsubscribe = onValue(dbRef, (snapshot) => {
@@ -15,6 +18,7 @@ const Streaming = () => {
             if (data) {
                 setCurrentTickets(Array.isArray(data.tickets) ? data.tickets : []);
                 setPublicTickets(Array.isArray(data.publicTickets) ? data.publicTickets : []);
+                setDataLoaded(true); // CRITICAL: Signal that we have the valid ticket list
                 if (data.settings) {
                     const newUrl = data.settings.streamUrl || '';
                     setUrl(prev => {
@@ -29,7 +33,7 @@ const Streaming = () => {
                     setUrl('');
                 }
             }
-        });
+        }, (err) => console.error("Firebase Sync Error:", err));
 
         const chatRef = query(ref(db, 'chats'), limitToLast(50));
         const unsubscribeChat = onValue(chatRef, (snapshot) => {
@@ -57,6 +61,7 @@ const Streaming = () => {
         return ticket ? localStorage.getItem(`jkt_name_${ticket}`) || '' : '';
     });
     const [tempName, setTempName] = useState('');
+    const [viewerCount, setViewerCount] = useState(0);
     const [sessionId] = useState(() => {
         let id = sessionStorage.getItem('jkt_session_id');
         if (!id) {
@@ -67,31 +72,33 @@ const Streaming = () => {
     });
     const [sessionConflict, setSessionConflict] = useState(false);
 
-    // 1. Authorization Logic: Verify ticket on load or list change
+    // 3. Authorization Effect: Runs ONLY after data is loaded to prevent premature lockouts
     useEffect(() => {
-        const allValidTickets = [...currentTickets, ...publicTickets];
-        if (allValidTickets.length === 0) return;
+        if (!dataLoaded) return;
 
+        const allValidTickets = [...currentTickets, ...publicTickets];
         const urlParams = new URLSearchParams(window.location.search);
         const ticketFromUrl = urlParams.get('ticket');
         const storedTicket = localStorage.getItem('active_jkt_ticket');
         const targetTicket = ticketFromUrl || storedTicket;
 
         if (targetTicket && allValidTickets.includes(targetTicket)) {
-            // Only re-authorize if we aren't authorized yet OR if we switched tickets
+            // Only authorize if not already done OR if ticket changed
             if (!sessionConflict && (!isAuthorized || activeTicket !== targetTicket)) {
                 handleAuthorization(targetTicket);
             }
         } else if (isAuthorized) {
+            // Revoke access ONLY if we are sure the ticket is truly invalid
             setIsAuthorized(false);
             setActiveTicket(null);
             setUserName('');
             localStorage.removeItem('active_jkt_ticket');
         }
-    }, [currentTickets, publicTickets, isAuthorized, sessionConflict, activeTicket]);
+    }, [currentTickets, publicTickets, isAuthorized, sessionConflict, activeTicket, dataLoaded]);
 
-    // 2. Automatic Name Cleanup: Remove stored names for expired/removed tickets
+    // 4. Cleanup Effect: Runs ONLY after data is loaded to prevent deleting valid names during refresh race
     useEffect(() => {
+        if (!dataLoaded) return;
         const allValidTickets = [...currentTickets, ...publicTickets];
         if (allValidTickets.length > 0) {
             Object.keys(localStorage).forEach(key => {
@@ -104,9 +111,9 @@ const Streaming = () => {
                 }
             });
         }
-    }, [currentTickets, publicTickets]);
+    }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 3. Global Heartbeat & Presence Logic
+    // 5. Presence & Heartbeat Logic
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict) return;
 
@@ -168,7 +175,7 @@ const Streaming = () => {
 
         // --- NAME SYNC LOGIC ---
         const savedName = localStorage.getItem(`jkt_name_${ticket}`);
-        // Only override if switching tickets or still empty
+        // Only override if switching tickets or actually empty
         if (activeTicket !== ticket || !userName) {
             setUserName(savedName || '');
         }
@@ -202,14 +209,17 @@ const Streaming = () => {
         }
     };
 
+    // UI States
     const [url, setUrl] = useState('');
     const [quality, setQuality] = useState('hd1080');
     const [showQualityMenu, setShowQualityMenu] = useState(false);
-    const [playing, setPlaying] = useState(true);
     const [volume, setVolume] = useState(0.8);
-    const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
+    const [messages, setMessages] = useState([
+        { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
+    ]);
+    const [input, setInput] = useState('');
 
     useEffect(() => {
         if (showControls) {
@@ -238,11 +248,6 @@ const Streaming = () => {
     };
 
     const videoId = getVideoId(url?.trim());
-    const [viewerCount, setViewerCount] = useState(0);
-    const [messages, setMessages] = useState([
-        { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
-    ]);
-    const [input, setInput] = useState('');
 
     const handleSend = async (e) => {
         e.preventDefault();
@@ -252,7 +257,6 @@ const Streaming = () => {
                 text: input,
                 timestamp: serverTimestamp()
             };
-
             try {
                 await push(ref(db, 'chats'), newMessage);
                 setInput('');
@@ -262,25 +266,22 @@ const Streaming = () => {
         }
     };
 
+    // --- RENDER LOGIC ---
+
     if (sessionConflict) {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-center text-white">
-                <div className="w-full max-w-md bg-dark-surface border border-neon-pink/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(255,0,128,0.1)]">
-                    <div className="w-16 h-16 bg-neon-pink/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-neon-pink/20">
-                        <AlertTriangle className="text-neon-pink" size={32} />
-                    </div>
+                <div className="w-full max-w-md bg-dark-surface border border-neon-pink/30 p-8 rounded-2xl">
+                    <AlertTriangle className="text-neon-pink mx-auto mb-6" size={48} />
                     <h2 className="text-white text-2xl font-display mb-2">SESSION CONFLICT</h2>
-                    <p className="text-gray-400 text-sm mb-6">
-                        Ticket ini sedang digunakan di perangkat lain. <br />
-                        Silakan tutup perangkat lain untuk melanjutkan di sini.
-                    </p>
+                    <p className="text-gray-400 text-sm mb-6">Ticket ini sedang digunakan di perangkat lain.</p>
                     <button
                         onClick={async () => {
                             const sessionRef = ref(db, `sessions/${activeTicket}`);
                             await set(sessionRef, { id: sessionId, timestamp: Date.now() });
                             setTimeout(() => window.location.reload(), 500);
                         }}
-                        className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]"
+                        className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold"
                     >
                         MASUK PAKSA (AMBIL ALIH)
                     </button>
@@ -293,11 +294,9 @@ const Streaming = () => {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-white">
                 <div className="w-full max-w-md bg-dark-surface border border-white/10 p-8 rounded-2xl text-center">
-                    <div className="w-16 h-16 bg-neon-blue/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <Lock className="text-neon-blue" size={32} />
-                    </div>
+                    <Lock className="text-neon-blue mx-auto mb-6" size={48} />
                     <h2 className="text-white text-2xl font-display mb-2">ACCESS PROTECTED</h2>
-                    <p className="text-gray-400 text-sm mb-8">Masukkan Ticket ID Anda untuk masuk ke ruang nobar.</p>
+                    <p className="text-gray-400 text-sm mb-8">Masukkan Ticket ID Anda.</p>
                     <form onSubmit={handleTicketSubmit} className="space-y-4">
                         <div className="relative">
                             <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -305,14 +304,12 @@ const Streaming = () => {
                                 type="text"
                                 value={ticketInput}
                                 onChange={(e) => setTicketInput(e.target.value)}
-                                placeholder="CONTOH-TICKET-123"
-                                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:border-neon-blue transition-all"
+                                placeholder="TICKET ID..."
+                                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:border-neon-blue outline-none"
                             />
                         </div>
-                        {authError && <p className="text-neon-pink text-xs text-left px-1">{authError}</p>}
-                        <button className="w-full bg-neon-blue text-white py-3 rounded-xl font-bold hover:bg-blue-600 transition-all shadow-[0_0_20px_rgba(0,183,255,0.3)]">
-                            MASUK SEKARANG
-                        </button>
+                        {authError && <p className="text-neon-pink text-xs">{authError}</p>}
+                        <button className="w-full bg-neon-blue text-white py-3 rounded-xl font-bold">MASUK</button>
                     </form>
                 </div>
             </div>
@@ -323,37 +320,22 @@ const Streaming = () => {
         return (
             <div className="min-h-screen pt-20 bg-dark-bg flex items-center justify-center p-6 text-white">
                 <div className="w-full max-w-md bg-dark-surface border border-white/10 p-8 rounded-2xl text-center">
-                    <div className="w-16 h-16 bg-neon-pink/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <Users className="text-neon-pink" size={32} />
-                    </div>
+                    <Users className="text-neon-pink mx-auto mb-6" size={48} />
                     <h2 className="text-white text-2xl font-display mb-2">SIAPA NAMA ANDA?</h2>
-                    <p className="text-gray-400 text-sm mb-8">Nama ini akan muncul saat Anda mengirim komentar di live chat.</p>
+                    <p className="text-gray-400 text-sm mb-8">Nama di live chat.</p>
                     <form onSubmit={handleNameSubmit} className="space-y-4">
-                        <div className="relative">
-                            <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-                            <input
-                                type="text"
-                                value={tempName}
-                                onChange={(e) => setTempName(e.target.value)}
-                                placeholder="NAMA TAMPILAN..."
-                                maxLength={20}
-                                className="w-full bg-black border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:border-neon-pink transition-all font-bold tracking-wider"
-                            />
-                        </div>
-                        {authError && <p className="text-neon-pink text-xs text-left px-1">{authError}</p>}
-                        <button className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition-all shadow-[0_0_20px_rgba(255,0,128,0.3)]">
-                            MULAI MENONTON
-                        </button>
+                        <input
+                            type="text"
+                            value={tempName}
+                            onChange={(e) => setTempName(e.target.value)}
+                            placeholder="NAMA..."
+                            maxLength={20}
+                            className="w-full bg-black border border-white/10 rounded-xl py-3 px-4 text-white focus:border-neon-pink outline-none text-center font-bold"
+                        />
+                        {authError && <p className="text-neon-pink text-xs">{authError}</p>}
+                        <button className="w-full bg-neon-pink text-white py-3 rounded-xl font-bold">START WATCHING</button>
                     </form>
-                    <button
-                        onClick={() => {
-                            localStorage.removeItem('active_jkt_ticket');
-                            window.location.reload();
-                        }}
-                        className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest hover:text-white transition-colors"
-                    >
-                        GANTI TIKET
-                    </button>
+                    <button onClick={() => { localStorage.removeItem('active_jkt_ticket'); window.location.reload(); }} className="text-gray-600 text-[10px] mt-8 uppercase tracking-widest">GANTI TIKET</button>
                 </div>
             </div>
         );
@@ -361,9 +343,9 @@ const Streaming = () => {
 
     return (
         <div className="min-h-screen pt-20 bg-dark-bg flex flex-col md:flex-row h-screen overflow-hidden text-white">
-            <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden border-b md:border-b-0 border-white/10">
+            <div id="main-player-container" className="flex-grow bg-black flex flex-col relative group overflow-hidden">
                 <div className="flex-grow relative h-full w-full">
-                    <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
+                    <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
                         {videoId ? (
                             <iframe
                                 id="yt-player-iframe"
@@ -375,64 +357,48 @@ const Streaming = () => {
                                 onLoad={() => setTimeout(() => setLoading(false), 4000)}
                             />
                         ) : (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                                <div className="text-white/20 font-mono text-[10px] tracking-[0.2em] mb-2 uppercase">SIGNAL NOT DETECTED</div>
-                            </div>
+                            <div className="text-white/20 font-mono text-[10px]">SIGNAL NOT DETECTED</div>
                         )}
                     </div>
 
                     {loading && (
-                        <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4 transition-all duration-500">
+                        <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
-                            <div className="text-neon-blue font-mono text-[9px] tracking-[0.3em] uppercase animate-pulse">Switching Quality... {quality.replace('hd', '')}p</div>
                         </div>
                     )}
 
-                    <div className="absolute top-0 left-0 w-full h-16 bg-gradient-to-b from-black via-black/90 to-transparent z-10 pointer-events-auto" />
-                    <div className="absolute bottom-0 right-0 w-48 h-16 bg-gradient-to-t from-black to-transparent z-10 pointer-events-auto" />
-
                     <div
-                        className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 md:group-hover:opacity-100'}`}
+                        className={`absolute inset-0 z-30 transition-all duration-500 ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 md:group-hover:opacity-100'}`}
                         onClick={() => setShowControls(!showControls)}
                     >
-                        <div className="absolute inset-0 z-20 bg-transparent cursor-default pointer-events-none" onContextMenu={(e) => e.preventDefault()} />
-                        <div className="absolute top-4 left-4 pointer-events-auto">
-                            <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40 shadow-lg">
+                        <div className="absolute top-4 left-4">
+                            <div className="text-white font-bold flex items-center gap-2 text-[9px] tracking-[0.4em] bg-neon-blue/20 backdrop-blur-xl px-3 py-1.5 rounded-full border border-neon-blue/40">
                                 <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
                                 SIGNAL: LIVE
                             </div>
                         </div>
 
-                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end pointer-events-auto gap-4 flex-wrap">
+                        <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-between items-end gap-4">
                             <div className="flex flex-col gap-2">
-                                <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase opacity-70">Nobar JKT48</div>
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); window.location.reload(); }}
-                                        className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue group/play"
-                                    >
-                                        <RotateCcw size={16} className="group-hover/play:rotate-[-45deg] transition-transform" />
-                                    </button>
-                                    <div className="flex flex-col">
-                                        <span className="text-[8px] text-gray-500 uppercase font-mono tracking-wider">Sync Status</span>
-                                        <span className="text-[9px] text-neon-green font-bold">SECURE CHANNEL</span>
-                                    </div>
-                                </div>
+                                <div className="text-neon-blue font-bold text-[9px] tracking-[0.4em] uppercase">Nobar JKT48</div>
+                                <button onClick={(e) => { e.stopPropagation(); window.location.reload(); }} className="p-2.5 bg-white/5 border border-white/10 rounded-full transition-all text-neon-blue hover:bg-white/10">
+                                    <RotateCcw size={16} />
+                                </button>
                             </div>
 
-                            <div className="flex items-center gap-3 sm:gap-6 text-white bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10 relative">
+                            <div className="flex items-center gap-3 sm:gap-6 bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10">
                                 <div className="relative">
-                                    <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center group cursor-pointer">
-                                        <Settings size={20} className={`transition-colors ${showQualityMenu ? 'text-neon-blue' : 'text-gray-300 group-hover:text-white'}`} />
-                                        <span className="text-[8px] mt-1 font-mono uppercase tracking-tighter">{quality.replace('hd', '')}P</span>
+                                    <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center">
+                                        <Settings size={20} className={showQualityMenu ? 'text-neon-blue' : 'text-gray-300'} />
+                                        <span className="text-[8px] mt-1 font-mono">{quality.replace('hd', '')}P</span>
                                     </button>
                                     {showQualityMenu && (
-                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[120px] shadow-2xl backdrop-blur-xl z-50">
+                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[120px] z-50">
                                             {[
-                                                { label: '1080p (HD)', value: 'hd1080' },
-                                                { label: '720p (HD)', value: 'hd720' },
-                                                { label: '480p (SD)', value: 'large' },
-                                                { label: '360p (SD)', value: 'medium' }
+                                                { label: '1080p', value: 'hd1080' },
+                                                { label: '720p', value: 'hd720' },
+                                                { label: '480p', value: 'large' },
+                                                { label: '360p', value: 'medium' }
                                             ].map((q) => (
                                                 <button
                                                     key={q.value}
@@ -443,7 +409,7 @@ const Streaming = () => {
                                                         setLoading(true);
                                                         setTimeout(() => setLoading(false), 4000);
                                                     }}
-                                                    className={`w-full text-left px-4 py-2 rounded-lg text-xs font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                                    className={`w-full text-left px-4 py-2 rounded-lg text-xs font-bold ${quality === q.value ? 'bg-neon-blue' : 'text-gray-400 hover:bg-white/5'}`}
                                                 >
                                                     {q.label}
                                                 </button>
@@ -451,12 +417,12 @@ const Streaming = () => {
                                         </div>
                                     )}
                                 </div>
-                                <div className="hidden sm:flex items-center gap-3 group/vol">
-                                    <Volume2 size={20} className={`cursor-pointer transition-colors ${volume === 0 ? 'text-red-500' : 'text-gray-300 group-hover/vol:text-white'}`} onClick={(e) => { e.stopPropagation(); setVolume(volume === 0 ? 0.8 : 0); }} />
+                                <div className="hidden sm:flex items-center gap-3">
+                                    <Volume2 size={20} className="text-gray-300" />
                                     <input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} onMouseDown={(e) => e.stopPropagation()} className="w-24 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-neon-blue" />
                                 </div>
                                 <button
-                                    className="p-2 bg-neon-blue/10 hover:bg-neon-blue/20 border border-neon-blue/20 rounded-lg transition-all group/fs"
+                                    className="p-2 border border-neon-blue/20 rounded-lg text-neon-blue hover:bg-neon-blue/10"
                                     onClick={async (e) => {
                                         e.stopPropagation();
                                         const playerEl = document.getElementById('main-player-container');
@@ -468,7 +434,7 @@ const Streaming = () => {
                                         }
                                     }}
                                 >
-                                    <Maximize size={24} className="text-neon-blue group-hover:scale-110 transition-transform" />
+                                    <Maximize size={24} />
                                 </button>
                             </div>
                         </div>
@@ -476,16 +442,16 @@ const Streaming = () => {
                 </div>
                 <div className="bg-black/95 border-t border-white/5 p-3 flex items-center justify-between z-40 px-6">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-red-500 rounded-full" /><span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Live Stream Active</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 bg-red-500 rounded-full" /><span className="text-[9px] text-gray-500 font-mono uppercase tracking-[0.2em]">Signal: Active</span></div>
                         <div className="h-3 w-px bg-white/10" />
-                        <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em] animate-pulse">Session Encrypted</span>
+                        <span className="text-[9px] text-neon-blue font-mono uppercase tracking-[0.2em]">Live Channel</span>
                     </div>
                 </div>
             </div>
 
             <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
                 <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
-                    <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
+                    <h3 className="font-bold">LIVE CHAT</h3>
                     <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
                         <Users size={12} /> {viewerCount.toLocaleString()}
                     </div>
@@ -498,9 +464,9 @@ const Streaming = () => {
                         </div>
                     ))}
                 </div>
-                <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-dark-bg/50">
+                <form onSubmit={handleSend} className="p-4 border-t border-white/10">
                     <div className="relative">
-                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:outline-none focus:border-neon-blue" placeholder="Say something..." />
+                        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} className="w-full bg-dark-bg border border-white/10 rounded-full pl-4 pr-10 py-2 text-white text-sm focus:border-neon-blue outline-none" placeholder="Chat..." />
                         <button type="submit" className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"><Send size={16} /></button>
                     </div>
                 </form>
