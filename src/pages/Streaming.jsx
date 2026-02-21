@@ -363,14 +363,22 @@ const Streaming = () => {
     useEffect(() => {
         if (!isPlayerReady || autoQuality) return;
         const iframe = document.getElementById('yt-player-iframe');
-        if (iframe) {
-            // setPlaybackQuality forces YouTube to hold the selected resolution
+        if (!iframe) return;
+        // Delay to ensure player is initialized before sending quality
+        const timer = setTimeout(() => {
+            // Send both variants for better YouTube player support
             iframe.contentWindow.postMessage(JSON.stringify({
                 event: 'command',
                 func: 'setPlaybackQuality',
                 args: [quality]
             }), '*');
-        }
+            iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'setPlaybackQualityRange',
+                args: [quality, quality]
+            }), '*');
+        }, 1500);
+        return () => clearTimeout(timer);
     }, [isPlayerReady, autoQuality, quality]);
 
     const getVideoId = (url) => {
@@ -511,7 +519,7 @@ const Streaming = () => {
                             <iframe
                                 id="yt-player-iframe"
                                 key={refreshKey}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playlist=${videoId}&loop=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}&playsinline=1`}
+                                src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&playlist=${videoId}&loop=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&hd=1&start=${activeTimeOffset}&playsinline=1`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
