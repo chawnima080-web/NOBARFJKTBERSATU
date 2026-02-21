@@ -279,7 +279,8 @@ const Streaming = () => {
     const [volume, setVolume] = useState(0.8);
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
-    const [autoQuality, setAutoQuality] = useState(false); // false = Manual, true = Auto
+    const [autoQuality, setAutoQuality] = useState(false);
+    const [qualityTransition, setQualityTransition] = useState(false); // Black screen during quality switch
     const [messages, setMessages] = useState([
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
@@ -563,6 +564,14 @@ const Streaming = () => {
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
                             <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
+                        </div>
+                    )}
+
+                    {/* Quality Transition Overlay — hides YouTube UI flash on ALL devices */}
+                    {qualityTransition && (
+                        <div className="absolute inset-0 z-[60] bg-black flex flex-col items-center justify-center gap-4 pointer-events-none">
+                            <div className="w-8 h-8 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
+                            <div className="text-neon-blue font-mono text-[9px] animate-pulse uppercase tracking-[0.3em]">Switching Quality...</div>
                         </div>
                     )}
 
