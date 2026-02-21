@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTriangle } from 'lucide-react';
+import { Send, Users, Play, Maximize, Volume2, Settings, Ticket, Lock, AlertTriangle, RotateCcw } from 'lucide-react';
 // ReactPlayer removed for native Iframe stability
 import { nanoid } from 'nanoid';
 import { db } from '../lib/firebase';
@@ -199,9 +199,28 @@ const Streaming = () => {
     const [volume, setVolume] = useState(0.8);
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [showNativeControls, setShowNativeControls] = useState(true);
     const [showControls, setShowControls] = useState(false);
-    const [lastTap, setLastTap] = useState(0);
+
+    // Auto-hide controls timer
+    useEffect(() => {
+        if (showControls) {
+            const timer = setTimeout(() => setShowControls(false), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [showControls]);
+
+    // Functional Volume Control for YT Iframe
+    useEffect(() => {
+        const iframe = document.getElementById('yt-player-iframe');
+        if (iframe) {
+            const message = JSON.stringify({
+                event: 'command',
+                func: 'setVolume',
+                args: [volume * 100] // YT API uses 0-100
+            });
+            iframe.contentWindow.postMessage(message, '*');
+        }
+    }, [volume, url]); // Re-apply on URL change too
 
     // Extraction logic for YouTube Video ID
     const getVideoId = (url) => {
@@ -363,6 +382,7 @@ const Streaming = () => {
                     <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
                         {videoId ? (
                             <iframe
+                                id="yt-player-iframe"
                                 key={`${videoId}-${quality}`}
                                 src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
@@ -396,16 +416,8 @@ const Streaming = () => {
 
                     {/* CUSTOM OVERLAY UI - Highest Z-index */}
                     <div
-                        className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 group-hover:opacity-100 pointer-events-none'}`}
-                        onClick={(e) => {
-                            if (showControls) {
-                                setShowControls(false);
-                            } else {
-                                setShowControls(true);
-                                // Auto-hide after 5 seconds
-                                setTimeout(() => setShowControls(false), 5000);
-                            }
-                        }}
+                        className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 md:group-hover:opacity-100'}`}
+                        onClick={() => setShowControls(!showControls)}
                     >
                         {/* Interaction Shield - Blocks YT but below our controls UI */}
                         <div className="absolute inset-0 z-20 bg-transparent cursor-default pointer-events-none"
@@ -429,9 +441,9 @@ const Streaming = () => {
                                             window.location.reload();
                                         }}
                                         className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-neon-blue group/play"
-                                        title="Play/Refresh Stream"
+                                        title="Reset Stream"
                                     >
-                                        <Play size={16} className="fill-current group-hover/play:scale-110 transition-transform" />
+                                        <RotateCcw size={16} className="group-hover/play:rotate-[-45deg] transition-transform" />
                                     </button>
                                     <div className="flex flex-col">
                                         <span className="text-[8px] text-gray-500 uppercase font-mono tracking-wider">Sync Status</span>
