@@ -101,55 +101,72 @@ const Streaming = () => {
         if (publicTickets.includes(activeTicket)) return;
 
         const sessionRef = ref(db, `sessions/${activeTicket}`);
+        const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
         let heartbeatInterval;
 
-        // 1. Listen for changes in ownership
-        const unsubscribe = onValue(sessionRef, (snapshot) => {
+        // Presence Logic: Mark as online and remove on disconnect
+        set(presenceRef, true);
+        onDisconnect(presenceRef).remove();
+
+        // Monitor Global Presence
+        const globalPresenceRef = ref(db, 'presence');
+        const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
-            if (!data) return;
-
-            // If someone else took over AND they are still active (within 40s grace)
-            if (data.id !== sessionId) {
-                const now = Date.now();
-                const lastSeen = data.timestamp || 0;
-
-                if (now - lastSeen < 40000) {
-                    setSessionConflict(true);
-                    // STOP: Don't call setIsAuthorized(false) here, 
-                    // let sessionConflict state handle the UI blocker independently.
-                    if (heartbeatInterval) clearInterval(heartbeatInterval);
-                    return;
-                }
+            if (data) {
+                setViewerCount(Object.keys(data).length);
+            } else {
+                setViewerCount(0);
             }
         });
 
-        // 2. Setup Periodic Heartbeat
-        const updateHeartbeat = async () => {
-            // Safety: Check if we are still active before writing
-            if (sessionConflict) return;
+        const checkSession = () => {
+            // 1. Listen for changes in ownership
+            const unsubscribe = onValue(sessionRef, (snapshot) => {
+                const data = snapshot.val();
+                if (!data) return;
 
-            try {
-                await set(sessionRef, {
-                    id: sessionId,
-                    timestamp: Date.now()
-                });
-            } catch (e) {
-                console.error("Heartbeat update failed:", e);
-            }
-        };
+                // If someone else took over AND they are still active (within 40s grace)
+                if (data.id !== sessionId) {
+                    const now = Date.now();
+                    const lastSeen = data.timestamp || 0;
 
-        // Initial update and start interval
-        updateHeartbeat();
-        heartbeatInterval = setInterval(updateHeartbeat, 15000);
+                    if (now - lastSeen < 40000) {
+                        setSessionConflict(true);
+                        // STOP: Don't call setIsAuthorized(false) here, 
+                        // let sessionConflict state handle the UI blocker independently.
+                        if (heartbeatInterval) clearInterval(heartbeatInterval);
+                        return;
+                    }
+                }
+            });
 
-        // 3. Cleanup
-        onDisconnect(sessionRef).remove();
+            // 2. Setup Periodic Heartbeat
+            const updateHeartbeat = async () => {
+                // Safety: Check if we are still active before writing
+                if (sessionConflict) return;
 
-        return () => {
-            unsubscribe();
-            if (heartbeatInterval) clearInterval(heartbeatInterval);
-        };
-    }, [isAuthorized, activeTicket, sessionId, sessionConflict]);
+                try {
+                    await set(sessionRef, {
+                        id: sessionId,
+                        timestamp: Date.now()
+                    });
+                } catch (e) {
+                    console.error("Heartbeat update failed:", e);
+                }
+            };
+
+            // Initial update and start interval
+            updateHeartbeat();
+            heartbeatInterval = setInterval(updateHeartbeat, 15000);
+
+            // 3. Cleanup
+            onDisconnect(sessionRef).remove();
+
+            return () => {
+                unsubscribe();
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+            };
+        }, [isAuthorized, activeTicket, sessionId, sessionConflict]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -232,6 +249,7 @@ const Streaming = () => {
     };
 
     const videoId = getVideoId(url?.trim());
+    const [viewerCount, setViewerCount] = useState(0);
     const [messages, setMessages] = useState([
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
@@ -559,7 +577,7 @@ const Streaming = () => {
                 <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
                     <h3 className="text-white font-bold font-display">LIVE CHAT</h3>
                     <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
-                        <Users size={12} /> 12.5k
+                        <Users size={12} /> {viewerCount.toLocaleString()}
                     </div>
                 </div>
 
