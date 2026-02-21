@@ -163,13 +163,14 @@ const Streaming = () => {
             const data = snapshot.val();
             if (data) {
                 const uniqueSessions = new Set();
-                const serverNow = Date.now() + serverTimeOffset;
+                const currentOffset = serverTimeOffset || 0;
+                const serverNow = Date.now() + currentOffset;
 
                 Object.values(data).forEach(entry => {
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
                         const lastActive = entry.timestamp || 0;
-                        // Precision window: 45 seconds (Buffer for mobile latency)
-                        if (serverNow - lastActive < 45000) {
+                        // Precision window: 60 seconds (Robust for mobile latency/clock drift)
+                        if (serverNow - lastActive < 60000) {
                             uniqueSessions.add(entry.id);
                         }
                     }
@@ -346,15 +347,15 @@ const Streaming = () => {
             const diff = Math.floor((now - startTime) / 1000);
             setActiveTimeOffset(diff > 0 ? diff : 0);
         }
-    }, [startTime, url, refreshKey]); // Update offset ONLY when necessary (refresh/start/url change)
+    }, [startTime, url, refreshKey]);
 
     const handleRefresh = (e) => {
         if (e) e.stopPropagation();
         setLoading(true);
         setIsPlayerReady(false);
+        setActiveTimeOffset(0); // Reset offset to force recalculation
         setRefreshKey(prev => prev + 1);
-        // Offset will be recalculated by the useEffect above
-        setTimeout(() => setLoading(false), 1500);
+        setTimeout(() => setLoading(false), 2000);
     };
 
     const handleSend = async (e) => {
@@ -373,6 +374,14 @@ const Streaming = () => {
             }
         }
     };
+
+    // Auto-scroll chat
+    useEffect(() => {
+        const chatContainer = document.getElementById('chat-messages');
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    }, [messages]);
 
     // --- RENDER LOGIC ---
 
@@ -457,13 +466,14 @@ const Streaming = () => {
                         {videoId ? (
                             <iframe
                                 id="yt-player-iframe"
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
+                                key={refreshKey}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&playlist=${videoId}&loop=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
                                 onLoad={() => {
                                     setIsPlayerReady(true);
-                                    setTimeout(() => setLoading(false), 1500);
+                                    setTimeout(() => setLoading(false), 2000);
                                 }}
                             />
                         ) : (
@@ -586,11 +596,11 @@ const Streaming = () => {
             <div className="w-full md:w-80 lg:w-96 bg-dark-surface border-l border-white/10 flex flex-col h-[50vh] md:h-full">
                 <div className="p-4 border-b border-white/10 flex justify-between items-center text-white">
                     <h3 className="font-bold tracking-widest text-xs uppercase">LIVE CHAT</h3>
-                    <div className="flex items-center text-xs text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
+                    <div className="flex items-center text-xs font-bold text-neon-green gap-1 bg-neon-green/10 px-2 py-1 rounded">
                         <Users size={12} /> {viewerCount.toLocaleString()}
                     </div>
                 </div>
-                <div className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                <div id="chat-messages" className="flex-grow overflow-y-auto p-4 space-y-4 custom-scrollbar scroll-smooth">
                     {messages.map((msg, idx) => (
                         <div key={idx} className="text-sm">
                             <span className={`font-bold mr-2 ${msg.user === 'Admin' ? 'text-neon-pink' : 'text-neon-blue'}`}>{msg.user}:</span>
