@@ -141,24 +141,28 @@ const Streaming = () => {
         });
         onDisconnect(presenceRef).remove();
 
-        // Listener for Unique Viewers Count
+        // Listener for Unique Viewers Count (Optimized & Clean)
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                // Count UNIQUE session IDs to avoid F5 ghosts
                 const uniqueSessions = new Set();
+                const now = Date.now();
+
                 Object.values(data).forEach(entry => {
-                    if (entry && typeof entry === 'object' && entry.id) {
-                        uniqueSessions.add(entry.id);
-                    } else if (typeof entry === 'boolean') {
-                        // Compatibility for old boolean entries
-                        uniqueSessions.add(Math.random());
+                    // Only count if it's a valid object with an ID and correct Ticket
+                    if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
+                        const lastActive = entry.timestamp || 0;
+                        // Only count if active in the last 60 seconds
+                        if (now - lastActive < 60000) {
+                            uniqueSessions.add(entry.id);
+                        }
                     }
+                    // Ignore boolean true or legacy data
                 });
-                setViewerCount(uniqueSessions.size);
+                setViewerCount(uniqueSessions.size > 0 ? uniqueSessions.size : 1); // Fallback to 1 if we are here
             } else {
-                setViewerCount(0);
+                setViewerCount(1);
             }
         });
 
