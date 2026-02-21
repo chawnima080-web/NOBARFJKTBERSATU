@@ -81,10 +81,10 @@ const Streaming = () => {
     const [tempName, setTempName] = useState('');
     const [viewerCount, setViewerCount] = useState(0);
     const [sessionId] = useState(() => {
-        let id = sessionStorage.getItem('jkt_session_id');
+        let id = localStorage.getItem('jkt_session_id');
         if (!id) {
             id = nanoid();
-            sessionStorage.setItem('jkt_session_id', id);
+            localStorage.setItem('jkt_session_id', id);
         }
         return id;
     });
@@ -128,20 +128,27 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 5. Presence & Heartbeat Logic (Optimized for Refresh)
+    // 5. Presence & Heartbeat Logic (Optimized for Refresh & Android)
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict || !dataLoaded) return;
 
-        // Write current presence
         const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
-        set(presenceRef, {
-            id: sessionId,
-            ticket: activeTicket,
-            timestamp: serverTimestamp()
-        });
+        const updatePresence = () => {
+            set(presenceRef, {
+                id: sessionId,
+                ticket: activeTicket,
+                timestamp: serverTimestamp()
+            });
+        };
+
+        // Initial write
+        updatePresence();
         onDisconnect(presenceRef).remove();
 
-        // Listener for Unique Viewers Count (Optimized & Clean)
+        // HEARTBEAT: Update every 15s to keep count accurate
+        const presenceHeartbeat = setInterval(updatePresence, 15000);
+
+        // Listener for Unique Viewers Count (High Precision)
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
@@ -150,66 +157,64 @@ const Streaming = () => {
                 const now = Date.now();
 
                 Object.values(data).forEach(entry => {
-                    // Only count if it's a valid object with an ID and correct Ticket
                     if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
                         const lastActive = entry.timestamp || 0;
-                        // Only count if active in the last 60 seconds
-                        if (now - lastActive < 60000) {
+                        // Precision window: 30 seconds
+                        if (now - lastActive < 30000) {
                             uniqueSessions.add(entry.id);
                         }
                     }
-                    // Ignore boolean true or legacy data
                 });
-                setViewerCount(uniqueSessions.size > 0 ? uniqueSessions.size : 1); // Fallback to 1 if we are here
+                setViewerCount(uniqueSessions.size > 0 ? uniqueSessions.size : 1);
             } else {
                 setViewerCount(1);
             }
         });
 
         if (publicTickets.includes(activeTicket)) {
-            return () => unsubscribePresence();
+            return () => {
+                unsubscribePresence();
+                clearInterval(presenceHeartbeat);
+            };
         }
 
         const sessionRef = ref(db, `sessions/${activeTicket}`);
-        let heartbeatInterval;
+        let lockInterval;
 
         const unsubscribeSession = onValue(sessionRef, (snapshot) => {
             const data = snapshot.val();
             if (!data) return;
 
-            // CONFLICT CHECK: Only if ID is DIFFERENT
             if (data.id !== sessionId) {
                 const now = Date.now();
                 const lastSeen = data.timestamp || 0;
-                // Graceful tolerance: 40s
                 if (now - lastSeen < 40000) {
                     setSessionConflict(true);
-                    if (heartbeatInterval) clearInterval(heartbeatInterval);
+                    if (lockInterval) clearInterval(lockInterval);
                 } else {
-                    // Old session expired, we take over automatically
-                    updateHeartbeat();
+                    updateLock();
                 }
             }
         });
 
-        const updateHeartbeat = async () => {
+        const updateLock = async () => {
             if (sessionConflict) return;
             try {
-                // Always write current sessionId to lock the ticket
                 await set(sessionRef, { id: sessionId, timestamp: serverTimestamp() });
             } catch (e) {
-                console.error("Heartbeat failed:", e);
+                console.error("Lock failed:", e);
             }
         };
 
-        updateHeartbeat();
-        heartbeatInterval = setInterval(updateHeartbeat, 15000);
+        updateLock();
+        lockInterval = setInterval(updateLock, 15000);
         onDisconnect(sessionRef).remove();
 
         return () => {
             unsubscribePresence();
             unsubscribeSession();
-            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            clearInterval(presenceHeartbeat);
+            if (lockInterval) clearInterval(lockInterval);
         };
     }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, dataLoaded]);
 
@@ -296,18 +301,25 @@ const Streaming = () => {
         };
     }, []);
 
-    // Handle Volume PostMessage
+    // Handle Volume PostMessage & Automatic Unmute Attempt
     useEffect(() => {
         const iframe = document.getElementById('yt-player-iframe');
         if (iframe && isPlayerReady) {
-            const message = JSON.stringify({
+            // Volume
+            iframe.contentWindow.postMessage(JSON.stringify({
                 event: 'command',
                 func: 'setVolume',
                 args: [volume * 100]
-            });
-            iframe.contentWindow.postMessage(message, '*');
+            }), '*');
+
+            // Automatic unMute attempt for seamless flow
+            iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'unMute',
+                args: []
+            }), '*');
         }
-    }, [volume, isPlayerReady]); // Remove dependency on url/refreshKey/quality to prevent UI flicker
+    }, [volume, isPlayerReady]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -437,7 +449,7 @@ const Streaming = () => {
                             <iframe
                                 id="yt-player-iframe"
                                 key={`${videoId}-${refreshKey}`}
-                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
+                                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1&origin=${window.location.origin}&vq=${quality}&start=${activeTimeOffset}`}
                                 className="absolute inset-0 w-full h-full border-0 pointer-events-none"
                                 allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                                 title="YouTube Stream"
@@ -455,17 +467,6 @@ const Streaming = () => {
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
                             <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
-                        </div>
-                    )}
-
-                    {!isPlayerReady && !loading && (
-                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center">
-                            <button
-                                onClick={() => handleRefresh()}
-                                className="bg-neon-blue text-white px-8 py-4 rounded-full font-bold flex items-center gap-4 hover:scale-105 transition-all shadow-[0_0_30px_rgba(0,183,255,0.4)]"
-                            >
-                                <Play size={24} fill="currentColor" /> START WATCHING
-                            </button>
                         </div>
                     )}
 
