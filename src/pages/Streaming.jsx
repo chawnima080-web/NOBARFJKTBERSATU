@@ -21,14 +21,14 @@ const Streaming = () => {
         const unsubTickets = onValue(ticketsRef, (snap) => {
             const data = snap.val();
             setCurrentTickets(Array.isArray(data) ? data : []);
-            if (!dataLoaded && data) setDataLoaded(true);
+            setDataLoaded(true); // Always mark loaded after first response
         });
 
         const publicTicketsRef = ref(db, 'publicTickets');
         const unsubPublic = onValue(publicTicketsRef, (snap) => {
             const data = snap.val();
             setPublicTickets(Array.isArray(data) ? data : []);
-            if (!dataLoaded && data) setDataLoaded(true);
+            setDataLoaded(true); // Always mark loaded after first response
         });
 
         const settingsRef = ref(db, 'settings');
@@ -66,7 +66,7 @@ const Streaming = () => {
             unsubSettings();
             unsubscribeChat();
         };
-    }, [dataLoaded]);
+    }, []);  // Empty deps — subscribe once, listeners auto-update
 
     const [ticketInput, setTicketInput] = useState('');
     const [isAuthorized, setIsAuthorized] = useState(false);
@@ -144,10 +144,13 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 6. Presence & Heartbeat Logic (HIGH PRECISION)
+    // 6. Presence & Heartbeat Logic — counts ALL valid watchers
     useEffect(() => {
         if (!isAuthorized || !activeTicket || sessionConflict || !dataLoaded) return;
 
+        const allValidTickets = [...currentTickets, ...publicTickets];
+
+        // Write MY presence to Firebase
         const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
         const updatePresence = () => {
             set(presenceRef, {
@@ -157,23 +160,22 @@ const Streaming = () => {
             });
         };
 
-        // Initial write
         updatePresence();
         onDisconnect(presenceRef).remove();
 
-        // HEARTBEAT: Update every 10s for fast count updates
+        // HEARTBEAT every 10s to stay "online"
         const presenceHeartbeat = setInterval(updatePresence, 10000);
 
-        // Listener for Unique Viewers Count
-        // NO timestamp filter — onDisconnect removes stale entries automatically.
-        // This is the correct and simple approach.
+        // Listen to ALL presence entries and count anyone with a valid ticket
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
             if (data) {
                 const uniqueSessions = new Set();
                 Object.values(data).forEach(entry => {
-                    if (entry && typeof entry === 'object' && entry.id && entry.ticket === activeTicket) {
+                    // Count anyone watching with ANY valid ticket (not just same ticket)
+                    if (entry && typeof entry === 'object' && entry.id &&
+                        entry.ticket && allValidTickets.includes(entry.ticket)) {
                         uniqueSessions.add(entry.id);
                     }
                 });
@@ -183,6 +185,7 @@ const Streaming = () => {
             }
         });
 
+        // Public tickets: no session locking needed
         if (publicTickets.includes(activeTicket)) {
             return () => {
                 unsubscribePresence();
@@ -190,25 +193,9 @@ const Streaming = () => {
             };
         }
 
+        // Private tickets: enforce single-device session lock
         const sessionRef = ref(db, `sessions/${activeTicket}`);
         let lockInterval;
-
-        const unsubscribeSession = onValue(sessionRef, (snapshot) => {
-            const data = snapshot.val();
-            if (!data) return;
-
-            if (data.id !== sessionId) {
-                const now = Date.now() + serverTimeOffset;
-                const lastSeen = data.timestamp || 0;
-                // Conflict grace period
-                if (Math.abs(now - lastSeen) < 35000) {
-                    setSessionConflict(true);
-                    if (lockInterval) clearInterval(lockInterval);
-                } else {
-                    updateLock();
-                }
-            }
-        });
 
         const updateLock = async () => {
             if (sessionConflict) return;
@@ -218,6 +205,21 @@ const Streaming = () => {
                 console.error("Lock failed:", e);
             }
         };
+
+        const unsubscribeSession = onValue(sessionRef, (snapshot) => {
+            const data = snapshot.val();
+            if (!data) return;
+            if (data.id !== sessionId) {
+                const now = Date.now() + serverTimeOffset;
+                const lastSeen = data.timestamp || 0;
+                if (Math.abs(now - lastSeen) < 35000) {
+                    setSessionConflict(true);
+                    if (lockInterval) clearInterval(lockInterval);
+                } else {
+                    updateLock();
+                }
+            }
+        });
 
         updateLock();
         lockInterval = setInterval(updateLock, 15000);
@@ -229,7 +231,7 @@ const Streaming = () => {
             clearInterval(presenceHeartbeat);
             if (lockInterval) clearInterval(lockInterval);
         };
-    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, dataLoaded, serverTimeOffset]);
+    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, currentTickets, dataLoaded, serverTimeOffset]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -277,6 +279,7 @@ const Streaming = () => {
     const [volume, setVolume] = useState(0.8);
     const [loading, setLoading] = useState(true);
     const [showControls, setShowControls] = useState(false);
+    const [autoQuality, setAutoQuality] = useState(false); // false = Manual, true = Auto
     const [messages, setMessages] = useState([
         { user: 'Admin', text: 'Selamat datang di live nobar! Acara akan segera dimulai.' },
     ]);
@@ -355,6 +358,20 @@ const Streaming = () => {
             }
         }
     }, [volume, isPlayerReady, isActivated]);
+
+    // Force quality when autoQuality is OFF
+    useEffect(() => {
+        if (!isPlayerReady || autoQuality) return;
+        const iframe = document.getElementById('yt-player-iframe');
+        if (iframe) {
+            // setPlaybackQuality forces YouTube to hold the selected resolution
+            iframe.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: 'setPlaybackQuality',
+                args: [quality]
+            }), '*');
+        }
+    }, [isPlayerReady, autoQuality, quality]);
 
     const getVideoId = (url) => {
         if (!url) return null;
@@ -568,14 +585,30 @@ const Streaming = () => {
                             <div className="flex items-center gap-3 sm:gap-6 bg-black/40 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-white/10">
                                 <div className="relative">
                                     <button onClick={(e) => { e.stopPropagation(); setShowQualityMenu(!showQualityMenu); }} className="flex flex-col items-center hover:text-neon-blue transition-colors">
-                                        <Settings size={20} className={showQualityMenu ? 'text-neon-blue' : 'text-gray-300'} />
-                                        <span className="text-[8px] mt-1 font-mono uppercase tracking-widest">{quality.replace('hd', '')}p</span>
+                                        <Settings size={20} className={showQualityMenu ? 'text-neon-blue' : autoQuality ? 'text-green-400' : 'text-gray-300'} />
+                                        <span className="text-[8px] mt-1 font-mono uppercase tracking-widest">
+                                            {autoQuality ? 'AUTO' : quality === 'large' ? '480p' : quality === 'medium' ? '360p' : quality.replace('hd', '') + 'p'}
+                                        </span>
                                     </button>
 
                                     {showQualityMenu && (
-                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[140px] z-50 shadow-2xl backdrop-blur-xl">
+                                        <div className="absolute bottom-full mb-4 right-0 bg-dark-surface border border-white/10 rounded-xl p-2 min-w-[160px] z-50 shadow-2xl backdrop-blur-xl">
                                             <div className="text-[8px] font-mono text-gray-500 px-3 py-1 uppercase tracking-widest">Select Resolution</div>
+
+                                            {/* Auto Quality Toggle */}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setAutoQuality(prev => !prev); }}
+                                                className={`w-full text-left px-4 py-2.5 rounded-lg text-[10px] font-bold transition-all flex items-center justify-between ${autoQuality ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'text-gray-400 hover:bg-white/5'
+                                                    }`}
+                                            >
+                                                <span>Auto Quality</span>
+                                                <span className={`w-2 h-2 rounded-full ${autoQuality ? 'bg-green-400' : 'bg-gray-600'}`}></span>
+                                            </button>
+
+                                            <div className="border-t border-white/5 my-1"></div>
+
                                             {[
+                                                { label: '1440p QHD', value: 'hd1440' },
                                                 { label: '1080p Ultra', value: 'hd1080' },
                                                 { label: '720p HD', value: 'hd720' },
                                                 { label: '480p SD', value: 'large' },
@@ -586,12 +619,16 @@ const Streaming = () => {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setQuality(q.value);
+                                                        setAutoQuality(false); // Switch to manual when picking a resolution
                                                         setShowQualityMenu(false);
                                                         setLoading(true);
-                                                        setIsPlayerReady(false); // Reset so onLoad re-triggers unmute
+                                                        setIsPlayerReady(false);
                                                         setRefreshKey(prev => prev + 1);
                                                     }}
-                                                    className={`w-full text-left px-4 py-2.5 rounded-lg text-[10px] font-bold transition-all ${quality === q.value ? 'bg-neon-blue text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+                                                    className={`w-full text-left px-4 py-2.5 rounded-lg text-[10px] font-bold transition-all ${!autoQuality && quality === q.value
+                                                        ? 'bg-neon-blue text-white'
+                                                        : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                                        }`}
                                                 >
                                                     {q.label}
                                                 </button>
