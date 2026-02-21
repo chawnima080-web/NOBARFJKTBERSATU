@@ -127,18 +127,38 @@ const Streaming = () => {
         }
     }, [currentTickets, publicTickets, dataLoaded]);
 
-    // 5. Presence & Heartbeat Logic
+    // 5. Presence & Heartbeat Logic (Optimized for Refresh)
     useEffect(() => {
-        if (!isAuthorized || !activeTicket || sessionConflict) return;
+        if (!isAuthorized || !activeTicket || sessionConflict || !dataLoaded) return;
 
+        // Write current presence
         const presenceRef = ref(db, `presence/${activeTicket}_${sessionId}`);
-        set(presenceRef, true);
+        set(presenceRef, {
+            id: sessionId,
+            ticket: activeTicket,
+            timestamp: serverTimestamp()
+        });
         onDisconnect(presenceRef).remove();
 
+        // Listener for Unique Viewers Count
         const globalPresenceRef = ref(db, 'presence');
         const unsubscribePresence = onValue(globalPresenceRef, (snapshot) => {
             const data = snapshot.val();
-            setViewerCount(data ? Object.keys(data).length : 0);
+            if (data) {
+                // Count UNIQUE session IDs to avoid F5 ghosts
+                const uniqueSessions = new Set();
+                Object.values(data).forEach(entry => {
+                    if (entry && typeof entry === 'object' && entry.id) {
+                        uniqueSessions.add(entry.id);
+                    } else if (typeof entry === 'boolean') {
+                        // Compatibility for old boolean entries
+                        uniqueSessions.add(Math.random());
+                    }
+                });
+                setViewerCount(uniqueSessions.size);
+            } else {
+                setViewerCount(0);
+            }
         });
 
         if (publicTickets.includes(activeTicket)) {
@@ -151,12 +171,18 @@ const Streaming = () => {
         const unsubscribeSession = onValue(sessionRef, (snapshot) => {
             const data = snapshot.val();
             if (!data) return;
+
+            // CONFLICT CHECK: Only if ID is DIFFERENT
             if (data.id !== sessionId) {
                 const now = Date.now();
                 const lastSeen = data.timestamp || 0;
+                // Graceful tolerance: 40s
                 if (now - lastSeen < 40000) {
                     setSessionConflict(true);
                     if (heartbeatInterval) clearInterval(heartbeatInterval);
+                } else {
+                    // Old session expired, we take over automatically
+                    updateHeartbeat();
                 }
             }
         });
@@ -164,9 +190,10 @@ const Streaming = () => {
         const updateHeartbeat = async () => {
             if (sessionConflict) return;
             try {
-                await set(sessionRef, { id: sessionId, timestamp: Date.now() });
+                // Always write current sessionId to lock the ticket
+                await set(sessionRef, { id: sessionId, timestamp: serverTimestamp() });
             } catch (e) {
-                console.error("Heartbeat update failed:", e);
+                console.error("Heartbeat failed:", e);
             }
         };
 
@@ -179,7 +206,7 @@ const Streaming = () => {
             unsubscribeSession();
             if (heartbeatInterval) clearInterval(heartbeatInterval);
         };
-    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets]);
+    }, [isAuthorized, activeTicket, sessionId, sessionConflict, publicTickets, dataLoaded]);
 
     const handleAuthorization = (ticket) => {
         setIsAuthorized(true);
@@ -192,14 +219,16 @@ const Streaming = () => {
         }
         setTempName('');
         localStorage.setItem('active_jkt_ticket', ticket);
+        // Clean up URL to keep it pretty
         navigate(`/streaming?ticket=${ticket}`, { replace: true });
     };
 
     const handleTicketSubmit = (e) => {
         e.preventDefault();
         const allValidTickets = [...currentTickets, ...publicTickets];
-        if (allValidTickets.includes(ticketInput)) {
-            handleAuthorization(ticketInput);
+        const trimmedTicket = ticketInput.trim();
+        if (allValidTickets.includes(trimmedTicket)) {
+            handleAuthorization(trimmedTicket);
         } else {
             setAuthError('Ticket ID tidak valid atau sudah kedaluwarsa.');
         }
@@ -411,22 +440,32 @@ const Streaming = () => {
                     {loading && (
                         <div className="absolute inset-0 z-[35] bg-black flex flex-col items-center justify-center gap-4">
                             <div className="w-10 h-10 border-4 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin"></div>
-                            <div className="text-neon-blue font-mono text-[10px] animate-pulse">CONNECTING TO SIGNAL...</div>
+                            <div className="text-neon-blue font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">Resolving Signal...</div>
                         </div>
                     )}
 
                     {isMuted && !loading && (
-                        <div className="absolute inset-0 z-[34] bg-black/40 backdrop-blur-[2px] flex items-center justify-center">
+                        <div className="absolute inset-0 z-[34] bg-black/60 backdrop-blur-sm flex items-center justify-center group/play">
                             <button
-                                onClick={() => setIsMuted(false)}
-                                className="bg-neon-blue text-white px-10 py-5 rounded-full font-display font-bold flex items-center gap-4 hover:scale-110 transition-all shadow-[0_0_50px_rgba(0,183,255,0.4)]"
+                                onClick={() => {
+                                    setIsMuted(false);
+                                    // Robust unMute for sound activation
+                                    const iframe = document.getElementById('yt-player-iframe');
+                                    if (iframe) {
+                                        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*');
+                                        iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
+                                    }
+                                }}
+                                className="relative w-24 h-24 bg-neon-blue/20 border-2 border-neon-blue/60 rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-[0_0_50px_rgba(0,183,255,0.4)] group-hover/play:bg-neon-blue/40"
                             >
-                                <Volume2 size={32} fill="white" className="animate-pulse" />
-                                <div className="flex flex-col items-start leading-none">
-                                    <span className="text-xl tracking-wider">TAP TO UNMUTE</span>
-                                    <span className="text-[10px] opacity-70 font-mono mt-1">REAL-TIME SYNC ACTIVE</span>
+                                <div className="absolute inset-0 rounded-full animate-ping bg-neon-blue/20 opacity-40" />
+                                <div className="p-5 bg-neon-blue rounded-full shadow-[0_0_20px_#00b7ff] z-10">
+                                    <Play size={36} fill="white" className="text-white ml-1" />
                                 </div>
                             </button>
+                            <div className="absolute bottom-1/4 text-white/40 font-mono text-[9px] uppercase tracking-[0.3em] pointer-events-none">
+                                Tap to start synchronization
+                            </div>
                         </div>
                     )}
 
