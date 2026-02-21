@@ -17,7 +17,7 @@ const CursorAnimation = () => {
     }, []);
 
     return (
-        <div className="pointer-events-none fixed top-0 left-0 w-full h-full z-50">
+        <div className="pointer-events-none fixed top-0 left-0 w-full h-full z-50 hidden md:block">
             <motion.div
                 className="fixed top-0 left-0 w-8 h-8 rounded-full border border-neon-blue bg-neon-blue/20 blur-sm"
                 animate={{

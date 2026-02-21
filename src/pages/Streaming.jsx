@@ -398,15 +398,13 @@ const Streaming = () => {
                     <div
                         className={`absolute inset-0 z-30 transition-all duration-500 cursor-pointer ${showControls ? 'opacity-100 bg-black/20' : 'opacity-0 group-hover:opacity-100 pointer-events-none'}`}
                         onClick={(e) => {
-                            // On touch, toggle controls. On desktop, stays group-hover.
-                            const now = Date.now();
-                            if (now - lastTap < 300) {
-                                // Double tap for fullscreen maybe? For now just toggle
-                                setShowControls(!showControls);
+                            if (showControls) {
+                                setShowControls(false);
                             } else {
-                                setShowControls(!showControls);
+                                setShowControls(true);
+                                // Auto-hide after 5 seconds
+                                setTimeout(() => setShowControls(false), 5000);
                             }
-                            setLastTap(now);
                         }}
                     >
                         {/* Interaction Shield - Blocks YT but below our controls UI */}

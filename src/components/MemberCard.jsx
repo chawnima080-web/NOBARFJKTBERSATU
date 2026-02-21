@@ -17,7 +17,7 @@ const MemberCard = ({ member }) => {
                 <img
                     src={member.image}
                     alt={member.name}
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500 transform group-hover:scale-110"
+                    className="w-full h-full object-cover md:grayscale group-hover:grayscale-0 transition-all duration-500 transform group-hover:scale-110"
                     onError={(e) => {
                         e.target.style.display = 'none';
                         e.target.parentElement.style.backgroundColor = '#1a1a1a';
